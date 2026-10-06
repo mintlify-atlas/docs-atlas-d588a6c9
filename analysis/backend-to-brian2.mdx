@@ -1,7 +1,7 @@
 ---
 title: "Compare One Backend Against Brian2 Across All Rounds"
 sidebarTitle: "Backend vs Brian2"
-description: "Use compare_backend_to_brian2.py to generate publication-ready parity files comparing a single backend against Brian2 CPU across all five labeled benchmark rounds."
+description: "Use compare_backend_to_brian2.py to produce round-annotated parity files comparing one backend against Brian2 CPU across all five labeled benchmark rounds."
 ---
 
 `compare_backend_to_brian2.py` is designed for paper-support comparisons. It fixes Brian2 CPU as the reference and sweeps one chosen backend across all five rounds of a labeled run, producing round-annotated summary statistics and per-neuron rate-parity rows in a consistent column schema. The outputs match the `<backend>_vs_brian2_*` file shape expected by the project's publication figure pipeline.
@@ -39,9 +39,10 @@ python code/compare_backend_to_brian2.py \
 </ParamField>
 
 <ParamField path="--backend" type="string" required>
-  Backend key to compare against Brian2 CPU. Must be one of:
-  `brian2cuda`, `pytorch`, `nestgpu`, `genn`, `brian2genn`.
-  Passing `brian2cpp` raises an error because it is the reference backend.
+  Backend key to compare against Brian2 CPU. Accepted values are all keys in the
+  `FRAMEWORKS` dict: `brian2cpp`, `brian2cuda`, `pytorch`, `nestgpu`, `genn`,
+  `brian2genn`. Passing `brian2cpp` raises a `ValueError` at startup because it
+  is the reference backend.
 </ParamField>
 
 <ParamField path="--output-dir" type="string">

@@ -98,13 +98,13 @@ For PyTorch, the connectivity is also cached as sparse weight matrices (`weight_
 
 All six backends implement the same LIF equations, use the same connectome data, and write the same Parquet spike schema — but they differ substantially in how they organise computation, handle trial parallelism, and represent synaptic weights.
 
-| Property | Brian2 / Brian2CUDA | PyTorch | NEST GPU |
-|---|---|---|---|
-| **Build step** | C++ or CUDA codegen + compile | None (eager mode) | None |
-| **Trial parallelism** | Sequential (`device.run` per trial) | Batched (`batch_size = n_run`) | Subprocess per trial (cannot reset in-process) |
-| **Weight format** | Brian2 `Synapses` object | Sparse CSR tensor | Array-based `Connect` |
-| **Neuron model** | Brian2 differential equations | Custom `nn.Module` classes | Custom CUDA kernel (`user_m1`) |
-| **Timestep** | 0.1 ms | 0.1 ms | 0.1 ms |
+| Property | Brian2 (CPU) | Brian2CUDA | PyTorch | NEST GPU | GeNN | Brian2GeNN |
+|---|---|---|---|---|---|---|
+| **Build step** | C++ codegen + compile | CUDA codegen + compile | None (eager mode) | None | CUDA codegen + compile | CUDA codegen + compile |
+| **Trial parallelism** | Sequential (`device.run`) | Sequential (`device.run`) | Batched (`batch_size = n_run`) | Subprocess per trial | Native GeNN batch dimension | Independent sequential builds |
+| **Weight format** | Brian2 `Synapses` | Brian2 `Synapses` | Sparse CSR tensor | Array-based `Connect` | GeNN synapse population | Brian2 `Synapses` → GeNN |
+| **Neuron model** | Brian2 diff. equations | Brian2 diff. equations | Custom `nn.Module` | Custom CUDA kernel (`user_m1`) | PyGeNN 5.4.0 model | Brian2GeNN 1.7.0 / GeNN 4.x |
+| **Timestep** | 0.1 ms | 0.1 ms | 0.1 ms | 0.1 ms | 0.1 ms | 0.1 ms |
 
 **GeNN** (PyGeNN 5.4.0) uses GeNN's native batch dimension for `n_run > 1`, grouping multiple independent trials into a single CUDA kernel launch. Large batched runs cap the on-device spike-recording buffer with `GENN_RECORDING_WINDOW_MAX_SLOTS` (default: 800,000) to avoid CUDA out-of-memory errors; buffer flushes are tracked as result collection overhead rather than simulation time.
 

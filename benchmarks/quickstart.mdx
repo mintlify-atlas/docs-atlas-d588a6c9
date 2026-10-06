@@ -1,7 +1,7 @@
 ---
-title: "Get Started: Run Your First Brain Simulation"
+title: "Fly Brain Quickstart: Run Your First LIF Simulation"
 sidebarTitle: "Quickstart"
-description: "Run a Fly Brain benchmark in under five minutes: create the conda environment, choose a backend, and inspect the spike output CSV."
+description: "Create the brain-fly conda environment, run a 1-second Drosophila brain benchmark across six backends, and explore the timing CSV and spike parquet output."
 ---
 
 This quickstart walks you through setting up the `brain-fly` conda environment, running a 1-second leaky integrate-and-fire simulation of the entire adult *Drosophila* brain, and inspecting the timing CSV and spike parquet files that every benchmark produces. You will be running real neural simulations — ~138k neurons and ~5M synapses — across one or more computational backends in a single command.
@@ -84,6 +84,13 @@ After each run, open `data/benchmark-results.csv` to review timing. The key colu
 | `spikes` | Total spike count across all trials |
 | `active_neurons` | Number of unique neurons that fired at least once |
 | `status` | `success` or an error message string |
+| `timestamp` | ISO-format datetime when the row was written |
+| `backend_key` | Internal key: `cpu`, `gpu`, `pytorch`, `nestgpu`, `genn`, or `brian2genn` |
+| `experiment` | Human-readable experiment name (e.g. `Sugar GRNs (200 Hz)`) |
+| `experiment_key` | Machine key: `sugar` or `p9` |
+| `run_label` | Paper run label (e.g. `nature_2026_07`), or empty for unlabeled runs |
+| `round` | Round number within a labeled multi-round run, or empty for single runs |
+| `spike_path` | Repo-relative path to the spike parquet file, or empty when `--disable-spike-io` is set |
 
 ### Examine spike parquet files in `data/results/`
 

@@ -1,5 +1,5 @@
 ---
-title: "GeNN Backend: PyGeNN 5.4.0 Batched CUDA"
+title: "GeNN Backend: PyGeNN 5.4.0 Batched CUDA Simulation"
 sidebarTitle: "GeNN"
 description: "The GeNN backend uses PyGeNN 5.4.0 with the CUDA device to run batched multi-trial Drosophila LIF simulations with bounded spike recording buffers."
 ---
@@ -42,16 +42,16 @@ Spike recording uses GeNN's device-side recording buffer. The recording window s
 
 ```python
 MODEL_PARAMS = {
-    'tauSyn':      5.0,    # ms  — synaptic (alpha) time constant
-    'tDelay':      1.8,    # ms  — synaptic delay
-    'v0':        -52.0,    # mV  — initial / resting membrane potential
-    'vReset':    -52.0,    # mV  — reset potential after spike
-    'vRest':     -52.0,    # mV  — resting potential for leak term
-    'vThreshold':-45.0,    # mV  — spike threshold
-    'tauMem':     20.0,    # ms  — membrane time constant
-    'tRefrac':     2.2,    # ms  — refractory period
-    'scalePoisson':250.0,  #     — Poisson weight scaling factor
-    'wScale':      0.275,  # mV  — synapse weight scale
+    'tauSyn':       5.0,    # ms  — synaptic (alpha) time constant
+    'tDelay':       1.8,    # ms  — synaptic delay
+    'v0':         -52.0,    # mV  — initial / resting membrane potential
+    'vReset':     -52.0,    # mV  — reset potential after spike
+    'vRest':      -52.0,    # mV  — resting potential for leak term
+    'vThreshold': -45.0,    # mV  — spike threshold
+    'tauMem':      20.0,    # ms  — membrane time constant
+    'tRefrac':      2.2,    # ms  — refractory period
+    'scalePoisson': 250.0,  #     — Poisson weight scaling factor
+    'wScale':       0.275,  # mV  — synapse weight scale
 }
 
 DT = 0.1  # Simulation timestep in ms

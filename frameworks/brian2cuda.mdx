@@ -1,7 +1,7 @@
 ---
-title: "Brian2CUDA: CUDA Standalone GPU Backend"
+title: "Brian2CUDA: CUDA Standalone GPU Backend for LIF Sims"
 sidebarTitle: "Brian2CUDA"
-description: "Brian2CUDA uses Brian2's CUDA standalone device to compile and run the Drosophila LIF model on GPU, with a one-time build step and sequential trial execution."
+description: "Brian2CUDA compiles the Drosophila LIF model to CUDA once, then runs N trials on GPU, separating the one-time build cost from per-trial simulation time."
 ---
 
 Brian2CUDA targets the CUDA standalone device, generating and compiling CUDA C++ code once from the Brian2 network description and then running N trials sequentially against the compiled binary. This separates the one-time compilation cost from the per-trial GPU execution cost, making it straightforward to amortise build overhead across many trials.
@@ -24,9 +24,9 @@ After the network is fully constructed, the runner calls `device.build()` to gen
 
 After the build step, each trial is executed by calling `device.run()` once per trial. Trials share the same compiled binary but are independent runs — state is reset between trials at the OS/process level. This is in contrast to PyTorch and GeNN, which batch all trials into a single GPU kernel invocation.
 
-**Brian2 version**
+**Brian2 version requirement**
 
-Brian2CUDA requires Brian2 2.8.0 and brian2cuda==1.0a7, which are installed in the `brain-fly` conda environment. This version is intentionally incompatible with Brian2GeNN, which pins Brian2 versions below 2.6.
+Brian2CUDA requires Brian2 2.8.0 and `brian2cuda==1.0a7`, both installed in the `brain-fly` conda environment. Brian2 2.8.0 is intentionally incompatible with Brian2GeNN, which pins Brian2 versions below 2.6. The two backends must therefore run from separate environments.
 
 ## Build vs Simulation Time
 

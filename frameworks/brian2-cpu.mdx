@@ -1,7 +1,7 @@
 ---
-title: "Brian2 CPU: C++ Standalone Ground Truth Backend"
+title: "Brian2 CPU: C++ Standalone LIF Ground Truth Backend"
 sidebarTitle: "Brian2 CPU"
-description: "Brian2 C++ standalone implements the canonical Drosophila LIF model from Shiu et al. and serves as the accuracy ground truth for all other Fly Brain backends."
+description: "Brian2 C++ standalone implements the canonical Drosophila LIF model from Shiu et al. (Nature 2024), serving as the accuracy ground truth for all backends."
 ---
 
 Brian2 CPU is the reference implementation of the Fly Brain simulation. It uses Brian2's C++ standalone device for single-trial runs and joblib-parallelized trials for multi-trial benchmarks, closely following the original simulation from Shiu et al. Because this backend directly encodes the peer-reviewed model equations, every other backend is validated against it.
@@ -89,5 +89,5 @@ For single-trial C++ standalone runs, `sim_time` measures the standalone binary 
 The Brian2 CPU backend directly implements the canonical LIF model from [Shiu et al. (Nature 2024)](https://www.nature.com/articles/s41586-024-07763-9). That model was calibrated against experimental *Drosophila* optogenetic recordings and achieved **91% prediction accuracy** on held-out conditions. Because the equations, parameters, and Poisson drive are taken verbatim from the published model, the CPU backend is the most scientifically authoritative implementation in the benchmark suite. All other backends (Brian2CUDA, PyTorch, NEST GPU, GeNN, Brian2GeNN) are designed to reproduce its spike output and are compared against it using `code/compare_ground_truth.py`.
 
 <Note>
-Brian2CUDA (GPU) shares this same runner file (`run_brian2_cuda.py`) but calls `set_device('cuda_standalone')` instead of `set_device('cpp_standalone')`. See [frameworks/brian2cuda](/frameworks/brian2cuda) for details on the GPU path.
+Brian2CUDA (GPU) shares this same runner file (`run_brian2_cuda.py`) but calls `set_device('cuda_standalone')` instead of `set_device('cpp_standalone')`. See [Brian2CUDA](/frameworks/brian2cuda) for details on the GPU path.
 </Note>

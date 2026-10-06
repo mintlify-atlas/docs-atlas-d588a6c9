@@ -1,7 +1,7 @@
 ---
-title: "Benchmark Output Files: CSV, Parquet, and Manifest"
+title: "Fly Brain Output Files: CSV, Parquet, and Manifest"
 sidebarTitle: "Output Files"
-description: "Understand the benchmark-results.csv timing log, spike parquet files, manifest.csv, and checksums.sha256 produced by every Fly Brain benchmark run."
+description: "Complete reference for benchmark-results.csv columns, spike parquet schema, manifest.csv fields, and checksums.sha256 produced by every benchmark run."
 ---
 
 Every Fly Brain benchmark run produces at least one output file: the cumulative timing log at `data/benchmark-results.csv`. When spike I/O is enabled (the default), each backend also writes a per-spike parquet file under `data/results/`. Labeled paper suite runs additionally produce a `manifest.csv` index and a `checksums.sha256` integrity file for the full spike bundle. All paths are relative to the repository root.

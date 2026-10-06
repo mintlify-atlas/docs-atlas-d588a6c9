@@ -1,5 +1,5 @@
 ---
-title: "Spike Output Schema and Benchmark Results Format"
+title: "Spike Output Schema: Parquet Files and Benchmark CSV"
 sidebarTitle: "Results Schema"
 description: "Full schema reference for spike Parquet files, benchmark-results.csv, manifest.csv, and the ground-truth comparison JSON produced by Fly Brain."
 ---
@@ -12,8 +12,8 @@ Each spike file contains one row per spike event. The file is written outside th
 
 | Column | Type | Description |
 |---|---|---|
-| `time_ms` | float64 | Spike time in milliseconds — canonical column, consistent across all backends |
 | `t` | float64 | Legacy spike time column; kept for existing analysis scripts |
+| `time_ms` | float64 | Spike time in milliseconds — canonical column, consistent across all backends |
 | `trial` | int16 | Trial index (0-based); up to `n_run - 1` |
 | `neuron_index` | int | Integer row index of the neuron in the connectome (0-based, matches completeness CSV row order) |
 | `flywire_id` | int64 | FlyWire neuron ID (64-bit integer, matches the completeness CSV index) |

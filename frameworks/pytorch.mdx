@@ -1,7 +1,7 @@
 ---
-title: "PyTorch Backend: Batched GPU LIF Simulation"
+title: "PyTorch: Batched GPU LIF Simulation for Drosophila"
 sidebarTitle: "PyTorch"
-description: "The PyTorch backend implements the Drosophila LIF model with alpha-function synapses as a batched nn.Module, running all n_run trials simultaneously on GPU."
+description: "PyTorch implements the Drosophila LIF model as a batched nn.Module, running all n_run trials simultaneously on GPU using sparse connectome matrix multiply."
 ---
 
 PyTorch runs all `n_run` trials in a single batched forward pass using sparse matrix multiplication, making it the fastest backend for multi-trial runs. Rather than iterating over a Brian2 network, it implements the entire LIF + alpha-synapse + refractory dynamics as a custom `nn.Module` hierarchy and steps through the simulation timestep-by-timestep with `torch.no_grad()`.
@@ -31,16 +31,16 @@ v = v - (v - v_reset) * spike  # reset on spike
 
 ```python
 MODEL_PARAMS = {
-    'tauSyn':      5.0,    # ms  — synaptic (alpha) time constant
-    'tDelay':      1.8,    # ms  — synaptic delay
-    'v0':        -52.0,    # mV  — initial / resting membrane potential
-    'vReset':    -52.0,    # mV  — reset potential after spike
-    'vRest':     -52.0,    # mV  — resting potential for leak term
-    'vThreshold':-45.0,    # mV  — spike threshold
-    'tauMem':     20.0,    # ms  — membrane time constant
-    'tRefrac':     2.2,    # ms  — refractory period
-    'scalePoisson':250,    #     — Poisson weight scaling factor
-    'wScale':      0.275,  # mV  — synapse weight scale
+    'tauSyn':       5.0,   # ms  — synaptic (alpha) time constant
+    'tDelay':       1.8,   # ms  — synaptic delay
+    'v0':         -52.0,   # mV  — initial / resting membrane potential
+    'vReset':     -52.0,   # mV  — reset potential after spike
+    'vRest':      -52.0,   # mV  — resting potential for leak term
+    'vThreshold': -45.0,   # mV  — spike threshold
+    'tauMem':      20.0,   # ms  — membrane time constant
+    'tRefrac':      2.2,   # ms  — refractory period
+    'scalePoisson': 250,   #     — Poisson weight scaling factor
+    'wScale':       0.275, # mV  — synapse weight scale
 }
 
 DT = 0.1  # Simulation timestep in ms (matches Brian2 defaultclock.dt)

@@ -23,22 +23,22 @@ The output of every simulation is a per-spike record containing spike time (`tim
 All six frameworks share the same FlyWire connectome data, model parameters, and Parquet spike-output schema. The five backends listed under **brain-fly** run from a single conda environment; Brian2GeNN requires its own environment due to a Brian2 version conflict.
 
 <CardGroup cols={3}>
-  <Card title="Brian2 CPU" icon="microchip">
+  <Card title="Brian2 CPU" icon="microchip" href="/frameworks/brian2-cpu">
     C++ standalone mode on multi-core CPU. Serves as the canonical ground-truth implementation, directly inheriting the Shiu et al. Brian2 model with 91% experimental accuracy.
   </Card>
-  <Card title="Brian2CUDA" icon="bolt">
+  <Card title="Brian2CUDA" icon="bolt" href="/frameworks/brian2cuda">
     CUDA standalone mode that compiles Brian2 equations to GPU kernels. Requires Brian2 2.8.0; runs in the main **brain-fly** conda environment alongside Brian2 CPU.
   </Card>
-  <Card title="PyTorch" icon="fire">
+  <Card title="PyTorch" icon="fire" href="/frameworks/pytorch">
     Eager-mode GPU simulation using custom `nn.Module` classes and sparse CSR weight tensors. No compile step — trials run as a batched GPU tensor operation.
   </Card>
-  <Card title="NEST GPU" icon="server">
+  <Card title="NEST GPU" icon="server" href="/frameworks/nest-gpu">
     GPU-accelerated spiking simulator using a custom `user_m1` CUDA neuron kernel. Must be compiled from source with a patched `nestgpu.py`; each trial runs in a subprocess.
   </Card>
-  <Card title="GeNN" icon="gpu" iconType="solid">
+  <Card title="GeNN" icon="microchip" href="/frameworks/genn">
     PyGeNN 5.4.0 with the CUDA backend. Supports GeNN-native trial batching (`n_run` as a batch dimension) and bounded on-device spike-recording buffers for large runs.
   </Card>
-  <Card title="Brian2GeNN" icon="code">
+  <Card title="Brian2GeNN" icon="code" href="/frameworks/brian2genn">
     Brian2GeNN 1.7.0 as a Brian2 standalone device targeting GeNN/CUDA. Requires a separate **brain-fly-brian2genn** environment. Independent trials are run with deterministic per-trial C RNG seeds.
   </Card>
 </CardGroup>

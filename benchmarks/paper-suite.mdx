@@ -1,7 +1,7 @@
 ---
-title: "Run the Nature Paper Benchmark Suite"
+title: "Run the Fly Brain Nature Paper Benchmark Suite End-to-End"
 sidebarTitle: "Paper Suite"
-description: "Reproduce the full Nature 2024 benchmark grid with five rounds, four durations, and five trial counts across all six Fly Brain backends."
+description: "Reproduce the full Nature 2024 benchmark grid: five rounds, four durations, and five trial counts across all six Fly Brain computational backends."
 ---
 
 The Fly Brain paper suite is a structured benchmark grid designed to reproduce the performance results published in [Shiu et al., *Nature* 2024](https://www.nature.com/articles/s41586-024-07763-9). It runs four simulation durations, five trial counts, and five rounds of repetition across all six computational backends, producing 600 spike parquet files and a corresponding timing log. The `--paper` flag configures the parameter grid automatically; `--run-label` groups every output under a single versioned folder.

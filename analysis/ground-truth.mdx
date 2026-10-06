@@ -1,7 +1,7 @@
 ---
-title: "Validate Backends Against Brian2 CPU Ground Truth"
+title: "Validate All Backends Against Brian2 CPU Ground Truth"
 sidebarTitle: "Ground Truth"
-description: "Use compare_ground_truth.py to measure how closely each backend reproduces Brian2 CPU spike outputs via Jaccard overlap, firing-rate correlation, and spike-count ratios."
+description: "Run compare_ground_truth.py to score each backend against Brian2 CPU using Jaccard overlap, Pearson correlation, spike-count ratios, and top deviations."
 ---
 
 Brian2 CPU implements the canonical leaky integrate-and-fire model from [Shiu et al. (Nature 2024)](https://www.nature.com/articles/s41586-024-07763-9) and serves as the ground truth for neural accuracy across the Fly Brain benchmark suite. The `compare_ground_truth.py` script loads per-neuron spike trains from each backend and quantifies how faithfully they reproduce Brian2's output — giving a principled measure of biological plausibility before drawing any performance conclusions.
@@ -67,6 +67,11 @@ python code/compare_ground_truth.py --run-label nature_2026_07 --round 1
 <ParamField path="--round" type="int">
   Round number to compare within a labeled run. Used together with `--run-label`
   to select a specific `round_<N>` subdirectory.
+</ParamField>
+
+<ParamField path="--output" type="string" default="data/ground-truth-comparison.json">
+  Path to write the output JSON file. Accepts `-o` as a short alias. Defaults to
+  `data/ground-truth-comparison.json` relative to the repository root.
 </ParamField>
 
 ## Output File

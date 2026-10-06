@@ -1,7 +1,7 @@
 ---
-title: "NEST GPU Backend: Custom CUDA LIF Kernel"
+title: "NEST GPU: Custom CUDA LIF Kernel for Drosophila Brain"
 sidebarTitle: "NEST GPU"
-description: "NEST GPU runs the Drosophila LIF model with a custom user_m1 CUDA kernel, executing each trial in a separate subprocess since NEST GPU cannot reset state in-process."
+description: "NEST GPU runs the Drosophila LIF model via a custom user_m1 CUDA kernel, spawning one subprocess per trial because NEST GPU cannot reset in-process state."
 ---
 
 NEST GPU implements the Drosophila LIF model using a custom neuron model called `user_m1`, which encodes the LIF dynamics and alpha-function synapse as a hand-written CUDA kernel compiled directly into the NEST GPU library. Unlike Brian2 or PyTorch, NEST GPU has no built-in mechanism to reset its global simulation state between runs within a single process, so the benchmark runner spawns a fresh subprocess for every trial.

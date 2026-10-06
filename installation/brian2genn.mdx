@@ -1,7 +1,7 @@
 ---
-title: "Install Brian2GeNN in an Isolated Environment"
+title: "Install Brian2GeNN in a Separate Conda Environment"
 sidebarTitle: "Brian2GeNN"
-description: "Create the brain-fly-brian2genn conda environment for the Brian2GeNN 1.7.0 backend, which requires Brian2 < 2.6 and GeNN 4.x."
+description: "Create the brain-fly-brian2genn conda environment for the Brian2GeNN 1.7.0 backend, isolated from brain-fly due to a Brian2 version conflict."
 ---
 
 The `--brian2genn` backend uses Brian2GeNN 1.7.0 as a Brian2 standalone device that targets GeNN/CUDA. Because Brian2GeNN 1.7.0 pins Brian2 to a version earlier than 2.6, it cannot share an environment with Brian2CUDA, which requires Brian2 2.8.0. The two are fundamentally incompatible at the package level, so Brian2GeNN lives in its own `brain-fly-brian2genn` conda environment that is completely isolated from the main `brain-fly` environment.

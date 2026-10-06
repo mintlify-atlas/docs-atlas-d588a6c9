@@ -1,7 +1,7 @@
 ---
-title: "Install the brain-fly Conda Environment"
+title: "Set Up the brain-fly Conda Environment for Fly Brain"
 sidebarTitle: "Main Environment"
-description: "Set up the brain-fly conda environment for Brian2, Brian2CUDA, PyTorch, NEST GPU, and GeNN backends on Linux with CUDA 12.x."
+description: "Create the brain-fly conda environment to run Brian2, Brian2CUDA, PyTorch, NEST GPU, and GeNN backends on Linux with NVIDIA CUDA 12.x."
 ---
 
 The `brain-fly` conda environment is the single entry point for running five of the six Fly Brain simulation backends: Brian2 (CPU), Brian2CUDA (GPU), PyTorch (GPU), NEST GPU, and GeNN. If you are on a Linux machine with an NVIDIA GPU and CUDA 12.x installed, this environment gives you everything you need to reproduce the whole-brain LIF benchmarks.
@@ -89,6 +89,7 @@ The table below lists the key packages defined in `environment.yml`:
 | `matplotlib` | latest | Plotting |
 | `joblib` | latest | Parallelism helpers |
 | `jupyter` / `ipykernel` | latest | Notebook support |
+| `tqdm` | latest | Progress bars for benchmark runs |
 
 <Warning>
   The Brian2GeNN backend (`--brian2genn`) pins Brian2 to a version earlier than 2.6, which conflicts directly with the Brian2 2.8.0 requirement of Brian2CUDA. For this reason, Brian2GeNN runs from a **separate** `brain-fly-brian2genn` environment and must not be mixed with `brain-fly`. See [Brian2GeNN Installation](/installation/brian2genn) for setup instructions.

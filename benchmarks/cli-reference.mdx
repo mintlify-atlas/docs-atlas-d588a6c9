@@ -1,7 +1,7 @@
 ---
-title: "main.py CLI Reference: All Flags and Options"
+title: "Fly Brain main.py CLI Reference: All Flags Explained"
 sidebarTitle: "CLI Reference"
-description: "Complete reference for all main.py command-line flags including backend selectors, duration/trial parameters, paper suite options, and logging controls."
+description: "Complete reference for all main.py command-line flags: backend selectors, duration and trial parameters, paper suite options, and logging controls."
 ---
 
 `main.py` is the single entrypoint for every Fly Brain benchmark. It parses command-line arguments, configures the logger, validates parameter values, and dispatches to the framework-specific runners in `code/` — `run_brian2_cuda.py`, `run_pytorch.py`, `run_nestgpu.py`, `run_genn.py`, and `run_brian2_genn.py`. Results are written incrementally to `data/benchmark-results.csv` as each backend completes, so a long run is never lost if interrupted.
