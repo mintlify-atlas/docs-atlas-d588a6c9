@@ -1,0 +1,163 @@
+---
+title: "Core Concepts: LIF Model, Connectome, and Backends"
+sidebarTitle: "Concepts"
+description: "Understand the leaky integrate-and-fire neuron model, the FlyWire connectome structure, and how Fly Brain's six backends implement the same simulation."
+---
+
+This page explains the scientific and engineering concepts that underpin Fly Brain. It covers the leaky integrate-and-fire (LIF) neuron equations used in every backend, how the FlyWire connectome is stored and loaded, how neural activation and silencing work, and how the six frameworks differ in the way they execute the same simulation. Understanding these concepts will help you interpret benchmark timing columns, reproduce paper results, and extend the model to new experiments.
+
+## Leaky Integrate-and-Fire Model
+
+Every neuron in the simulation obeys a two-variable LIF model with an alpha-function synapse. The equations — taken directly from `code/paper-phil-drosophila/model.py` — are:
+
+```python
+dv/dt = (v_0 - v + g) / t_mbr   # volt (unless refractory)
+dg/dt = -g / tau                  # volt (unless refractory)
+```
+
+`v` is the membrane voltage and `g` is the synaptic conductance variable that drives the alpha-function synaptic current. When a presynaptic spike arrives (after delay `t_dly`), `g` is incremented by the synaptic weight `w`. Between spikes, `g` decays exponentially with time constant `tau`, and the membrane voltage is pulled toward the resting potential `v_0` with time constant `t_mbr`.
+
+**Threshold and reset.** A spike is emitted whenever `v > v_th`. On the same timestep the neuron resets:
+
+```python
+# Spike threshold
+v > v_th
+
+# Reset rule applied on spike
+v = v_rst;  w = 0;  g = 0 * mV
+```
+
+After firing, the neuron enters an absolute refractory period of `t_rfc` during which the differential equations are frozen (`unless refractory` clause in Brian2).
+
+**Key parameters** (source: `default_params` in `model.py`, citing Kakaria & de Bivort 2017, Jürgensen et al., Lazar et al., and Paul et al.):
+
+| Parameter | Value | Meaning |
+|---|---|---|
+| `v_0` | −52 mV | Resting (and reset) potential |
+| `v_th` | −45 mV | Spike threshold |
+| `t_mbr` | 20 ms | Membrane time constant (C × R = 0.002 µF × 10 MΩ) |
+| `tau` | 5 ms | Synaptic conductance decay time constant |
+| `t_rfc` | 2.2 ms | Absolute refractory period |
+| `t_dly` | 1.8 ms | Synaptic transmission delay |
+| `w_syn` | 0.275 mV | Weight per synapse (modulated by connectivity value) |
+| Timestep | 0.1 ms | Euler / linear integration step, all backends |
+
+The synaptic weight applied to each connection is `w_syn × (Excitatory × Connectivity)`, where the `Excitatory × Connectivity` column in the FlyWire parquet encodes synapse count and sign.
+
+## Neural Activation and Silencing
+
+**Activation (Poisson drive).** Optogenetic activation is modelled by injecting a Poisson spike train into the membrane voltage of each target neuron. In Brian2, this is a `PoissonInput` object with weight `w_syn × f_poi`, where `f_poi = 250` is a scaling factor large enough to reliably push the neuron over threshold. The refractory period of each stimulated neuron is simultaneously set to 0 ms so that Poisson events are not blocked by refractoriness.
+
+```python
+p = PoissonInput(
+    target=neu[i],
+    target_var='v',
+    N=1,
+    rate=params['r_poi'],        # e.g. 200 Hz for sugar GRNs
+    weight=params['w_syn'] * params['f_poi'],  # 0.275 mV × 250
+)
+neu[i].rfc = 0 * ms
+```
+
+Two independent populations (`neu_exc` and `neu_exc2`) can each be driven at a different Poisson rate (`r_poi` and `r_poi2`), enabling multi-frequency co-activation experiments in a single trial.
+
+**Silencing (weight zeroing).** Silencing a neuron is implemented by setting the synaptic weight of every synapse originating from that neuron to zero. This cuts off all outgoing drive while leaving the neuron's own membrane dynamics intact — equivalent to blocking neurotransmitter release:
+
+```python
+def silence(slnc, syn):
+    for i in slnc:
+        syn.w[f'{i} == i'] = 0 * mV
+    return syn
+```
+
+Activation and silencing can be combined freely: you can simultaneously excite a sensory population and silence a downstream interneuron, then observe how downstream activity patterns change.
+
+## FlyWire Connectome
+
+The FlyWire connectome is a synaptic-resolution reconstruction of the entire adult *Drosophila melanogaster* brain produced by the FlyWire consortium. Fly Brain uses the **v783 public release** (2025), which contains:
+
+- **~138,000 neurons** with unique FlyWire IDs
+- **~5 million synaptic connections** with pre/post-synaptic indices and synapse counts
+
+Two data files in `data/` back every simulation:
+
+| File | Format | Size | Contents |
+|---|---|---|---|
+| `2025_Completeness_783.csv` | CSV | 3.2 MB | Neuron IDs and metadata; row order defines Brian neuron indices |
+| `2025_Connectivity_783.parquet` | Parquet | 97 MB | Pre/post-synaptic index pairs + `Excitatory × Connectivity` weight column |
+
+At startup, `create_model()` in `model.py` reads both files with pandas, constructs a `NeuronGroup` of size `len(df_comp)`, and connects synapses using the integer index columns `Presynaptic_Index` and `Postsynaptic_Index`. FlyWire IDs in the neuron CSV are then used to map experiment neuron lists (given as FlyWire IDs) to Brian integer indices.
+
+For PyTorch, the connectivity is also cached as sparse weight matrices (`weight_coo.pkl` and `weight_csr.pkl`, ~288–289 MB each) so subsequent runs avoid re-converting from Parquet.
+
+<Tip>
+  Legacy FlyWire v630 data (from the 2023 preprint) is preserved in `data/archive/` for exact reproduction of the original paper figures. All new benchmarks use the v783 dataset.
+</Tip>
+
+## Backend Architecture
+
+All six backends implement the same LIF equations, use the same connectome data, and write the same Parquet spike schema — but they differ substantially in how they organise computation, handle trial parallelism, and represent synaptic weights.
+
+| Property | Brian2 / Brian2CUDA | PyTorch | NEST GPU |
+|---|---|---|---|
+| **Build step** | C++ or CUDA codegen + compile | None (eager mode) | None |
+| **Trial parallelism** | Sequential (`device.run` per trial) | Batched (`batch_size = n_run`) | Subprocess per trial (cannot reset in-process) |
+| **Weight format** | Brian2 `Synapses` object | Sparse CSR tensor | Array-based `Connect` |
+| **Neuron model** | Brian2 differential equations | Custom `nn.Module` classes | Custom CUDA kernel (`user_m1`) |
+| **Timestep** | 0.1 ms | 0.1 ms | 0.1 ms |
+
+**GeNN** (PyGeNN 5.4.0) uses GeNN's native batch dimension for `n_run > 1`, grouping multiple independent trials into a single CUDA kernel launch. Large batched runs cap the on-device spike-recording buffer with `GENN_RECORDING_WINDOW_MAX_SLOTS` (default: 800,000) to avoid CUDA out-of-memory errors; buffer flushes are tracked as result collection overhead rather than simulation time.
+
+**Brian2GeNN** (Brian2GeNN 1.7.0) operates as a Brian2 standalone device that generates GeNN/CUDA code. Because Brian2GeNN cannot use GeNN's native batch dimension with this model, `n_run > 1` is handled as independent sequential build-and-run trials with deterministic per-trial C RNG seeds.
+
+## Timing Columns
+
+Benchmark results are written to `data/benchmark-results.csv` with four timing columns that measure distinct phases of each run:
+
+| Column | What it measures |
+|---|---|
+| `setup_time` | Network creation: loading CSV/Parquet, constructing neurons and synapses, setting weights |
+| `build_time` | CUDA code generation and compilation (Brian2CUDA, Brian2GeNN); 0 for eager-mode backends |
+| `sim_time` | The always-on simulation loop — the primary performance metric |
+| `total_time` | End-to-end wall time: setup + build + sim + any overhead |
+
+<Warning>
+  Spike Parquet export is intentionally excluded from `sim_time`. File I/O is performed after the timed simulation section so that storage speed does not contaminate the neural-simulation benchmark. GeNN's on-device buffer transfer is similarly tracked as result-collection time, not simulation time. To run without any spike I/O at all, pass `--disable-spike-io` or set the environment variable `FLY_BRAIN_DISABLE_SPIKE_IO=1`.
+</Warning>
+
+The `realtime_ratio` column is `sim_time / t_run`, indicating how many seconds of wall time are needed per second of simulated time. Values below 1.0 mean the simulation runs faster than biological real time.
+
+## Experiments
+
+Two canonical experiments are defined in `benchmark.py` and selectable via `--experiment`:
+
+**`sugar` — Sugar GRNs (default)**
+
+Stimulates 21 gustatory receptor neurons (GRNs) at **200 Hz** to model sugar taste activation. This is the primary benchmark experiment used in the Nature 2024 paper and in the default `python main.py` run.
+
+```python
+'sugar': {
+    'name': 'Sugar GRNs (200 Hz)',
+    'neu_exc': [
+        720575940624963786,  # ... 21 FlyWire IDs
+    ],
+    'stim_rate': 200.0,  # Hz
+}
+```
+
+**`p9` — P9 forward walking**
+
+Stimulates **2 neurons** — the left and right P9 descending command neurons — at **100 Hz** to model a forward-walking motor command:
+
+```python
+'p9': {
+    'name': 'P9s forward walking (100 Hz)',
+    'neu_exc': [
+        720575940627652358,  # P9 left
+        720575940635872101,  # P9 right
+    ],
+    'stim_rate': 100.0,  # Hz
+}
+```
+
+To switch experiments, pass `--experiment p9` to `main.py`. The experiment selection is also recorded in the `experiment` and `experiment_key` columns of `benchmark-results.csv` so that timing rows from different experiments are never conflated.

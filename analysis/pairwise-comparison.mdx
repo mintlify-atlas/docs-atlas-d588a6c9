@@ -1,0 +1,131 @@
+---
+title: "Pairwise Cross-Framework Spike Comparisons"
+sidebarTitle: "Pairwise Comparison"
+description: "Run compare_spike_outputs.py to compute active-neuron overlap, firing-rate parity, and spike-time matches across all pairs of Fly Brain backends."
+---
+
+`compare_spike_outputs.py` performs all-pairs comparisons across every combination of Fly Brain frameworks, producing publication-quality outputs that quantify numerical agreement between backends. Unlike the ground-truth script, which always anchors on Brian2 CPU, this script treats all frameworks symmetrically — making it the right tool for spotting inter-framework discrepancies, validating GPU backends against each other, and building the full parity tables needed for figures.
+
+## What Is Computed
+
+For every requested `t_run`/`n_run` combination and every pair of loaded frameworks, the script computes:
+
+**Active-neuron overlap (Jaccard per pair)** — the fraction of neurons that fired in both frameworks relative to all neurons that fired in either. Also reports precision and recall to distinguish which framework has more active neurons.
+
+**Per-neuron firing-rate parity and correlation** — for neurons shared by both frameworks, computes the Pearson correlation of their average firing rates, along with RMSE and MAE in Hz. Per-neuron rate rows are written to `parity_rates.csv` for downstream plotting.
+
+**Spike-time matches within a tolerance window** — greedy one-to-one matching of spike times per `(trial, neuron)` group within a configurable millisecond tolerance. Produces timing F1, precision, recall, and mean/median absolute timing error.
+
+Results are written to four output files:
+
+- `pairwise_summary.csv`
+- `pairwise_summary.json`
+- `parity_rates.csv`
+- `missing_inputs.json`
+
+## Frameworks
+
+| Backend key | Display name |
+|---|---|
+| `brian2cpp` | Brian2 (CPU) |
+| `brian2cuda` | Brian2CUDA (GPU) |
+| `pytorch` | PyTorch (CUDA) |
+| `nestgpu` | NEST GPU |
+| `genn` | GeNN (GPU) |
+| `brian2genn` | Brian2GeNN (GPU) |
+
+With six frameworks there are **15 unique pairs** per `t_run`/`n_run` combination. The default paper grid of 4 durations × 5 trial counts produces up to 300 summary rows per round.
+
+## CLI Usage
+
+```bash
+python code/compare_spike_outputs.py \
+  --run-label nature_2026_07 \
+  --round 1 \
+  --output-dir data/results/nature_2026_07/comparisons
+```
+
+## CLI Flags
+
+<ParamField path="--run-label" type="string" required>
+  Run label for labeled paper runs. Parquet files are loaded from
+  `data/results/<label>/round_<N>/`. This flag is required.
+</ParamField>
+
+<ParamField path="--round" type="int" default="1">
+  Round number within the labeled run. Selects the `round_<N>` subdirectory
+  to read spike parquets from.
+</ParamField>
+
+<ParamField path="--output-dir" type="string">
+  Directory to write the four output files. Defaults to
+  `data/results/<run-label>/comparisons` if not specified.
+</ParamField>
+
+<ParamField path="--t_run" type="float[]" default="[0.1, 1.0, 10.0, 100.0]">
+  One or more simulation durations (in seconds) to include in the comparison.
+  Defaults to the full paper grid. Pass a single value for targeted checks.
+</ParamField>
+
+<ParamField path="--n_run" type="int[]" default="[1, 4, 8, 16, 32]">
+  One or more trial counts to include. Defaults to the full paper grid.
+</ParamField>
+
+<ParamField path="--tolerance-ms" type="float" default="1.0">
+  Spike-time matching tolerance in milliseconds. Two spikes on the same
+  `(trial, neuron)` must fall within this window to be counted as a match.
+</ParamField>
+
+## Output Files
+
+<ResponseField name="pairwise_summary.csv" type="CSV">
+  One row per framework pair and `t_run`/`n_run` combination. Contains all
+  active-neuron, firing-rate, and spike-timing metrics for that pair. This is
+  the primary file for plotting and statistical analysis.
+</ResponseField>
+
+<ResponseField name="pairwise_summary.json" type="JSON">
+  The same data as `pairwise_summary.csv` in JSON array format. Useful for
+  programmatic consumption without a CSV parser.
+</ResponseField>
+
+<ResponseField name="parity_rates.csv" type="CSV">
+  One row per neuron in the union of active neurons for each pair and
+  `t_run`/`n_run`. Contains `backend_a`, `backend_b`, `t_run`, `n_run`,
+  `flywire_id`, `rate_a_hz`, and `rate_b_hz`. Suitable for scatter plots of
+  per-neuron rate agreement.
+</ResponseField>
+
+<ResponseField name="missing_inputs.json" type="JSON">
+  List of parquet files that could not be found during loading. Each entry
+  records the backend key, framework name, `t_run`, `n_run`, and the expected
+  file path. Useful for diagnosing incomplete runs before re-running analysis.
+</ResponseField>
+
+## Reading pairwise_summary.csv
+
+Key columns in the summary file:
+
+| Column | Description |
+|---|---|
+| `framework_a` / `framework_b` | Display names of the two frameworks |
+| `backend_a` / `backend_b` | Short backend keys (e.g. `brian2cpp`, `pytorch`) |
+| `t_run` | Simulation duration in seconds |
+| `n_run` | Number of trials |
+| `spikes_a` / `spikes_b` | Total spike counts for each framework |
+| `spike_count_ratio_b_over_a` | Total spikes B / total spikes A |
+| `active_jaccard` | Jaccard index of active neuron sets |
+| `active_precision_b_over_a` | Shared neurons / active in B |
+| `active_recall_b_over_a` | Shared neurons / active in A |
+| `rate_pearson_shared` | Pearson correlation of per-neuron rates over shared neurons |
+| `rate_rmse_hz_shared` | RMSE of firing rates over shared neurons (Hz) |
+| `rate_mae_hz_shared` | MAE of firing rates over shared neurons (Hz) |
+| `timing_matches` | Count of spike-time matches within the tolerance window |
+| `timing_f1` | Harmonic mean of timing precision and recall |
+| `timing_mean_abs_dt_ms` | Mean absolute timing error for matched spikes (ms) |
+
+<Tip>
+  Use `--t_run 1.0 --n_run 1` for a quick single-point check during development.
+  This compares all available pairs at the 1-second, single-trial point and
+  completes in seconds rather than the minutes required for the full paper grid.
+</Tip>

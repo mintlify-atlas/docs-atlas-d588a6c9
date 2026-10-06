@@ -1,0 +1,60 @@
+---
+title: "Fly Brain: Whole-brain Drosophila Neural Simulation"
+sidebarTitle: "Introduction"
+description: "Fly Brain simulates the full adult Drosophila brain using the FlyWire connectome with 138k neurons and 5M synapses, benchmarked across six GPU frameworks."
+---
+
+Fly Brain is an open-source computational neuroscience project that builds and benchmarks a whole-brain leaky integrate-and-fire (LIF) simulation of the adult fruit fly (*Drosophila melanogaster*). Using the publicly released FlyWire connectome (version 783, ~138,000 neurons and ~5 million synapses), researchers can activate or silence arbitrary sets of neurons and observe spike propagation across the entire brain — all within a single unified codebase that runs on six different computational backends. The project is aimed at computational neuroscientists, ML engineers, and benchmarking researchers who want to explore large-scale neural simulation at the connectome scale.
+
+## What Fly Brain Does
+
+Fly Brain implements the canonical LIF model from Shiu et al. and applies it to every neuron in the FlyWire connectome simultaneously. At each 0.1 ms timestep the membrane voltage and synaptic conductance of all ~138k neurons are updated according to the alpha-function synapse equations, and any neuron that crosses the firing threshold emits a spike that propagates to its downstream partners after a fixed synaptic delay.
+
+Two types of neural manipulations are supported out of the box:
+
+**Activation** — target neurons receive Poisson-distributed spike trains that model optogenetic stimulation. Two independent populations can be driven at different frequencies within the same trial, letting you examine competitive or co-operative sensory pathways.
+
+**Silencing** — all synaptic weights onto and from a chosen set of neurons are set to zero, replicating optogenetic silencing or lesion experiments. Silencing and activation can be combined freely.
+
+The output of every simulation is a per-spike record containing spike time (`time_ms`), trial index, neuron index, and FlyWire ID. Results are written to Parquet files for downstream analysis and are kept deliberately separate from the timed simulation loop so that file I/O does not inflate reported `sim_time` figures.
+
+## Supported Backends
+
+All six frameworks share the same FlyWire connectome data, model parameters, and Parquet spike-output schema. The five backends listed under **brain-fly** run from a single conda environment; Brian2GeNN requires its own environment due to a Brian2 version conflict.
+
+<CardGroup cols={3}>
+  <Card title="Brian2 CPU" icon="microchip">
+    C++ standalone mode on multi-core CPU. Serves as the canonical ground-truth implementation, directly inheriting the Shiu et al. Brian2 model with 91% experimental accuracy.
+  </Card>
+  <Card title="Brian2CUDA" icon="bolt">
+    CUDA standalone mode that compiles Brian2 equations to GPU kernels. Requires Brian2 2.8.0; runs in the main **brain-fly** conda environment alongside Brian2 CPU.
+  </Card>
+  <Card title="PyTorch" icon="fire">
+    Eager-mode GPU simulation using custom `nn.Module` classes and sparse CSR weight tensors. No compile step — trials run as a batched GPU tensor operation.
+  </Card>
+  <Card title="NEST GPU" icon="server">
+    GPU-accelerated spiking simulator using a custom `user_m1` CUDA neuron kernel. Must be compiled from source with a patched `nestgpu.py`; each trial runs in a subprocess.
+  </Card>
+  <Card title="GeNN" icon="gpu" iconType="solid">
+    PyGeNN 5.4.0 with the CUDA backend. Supports GeNN-native trial batching (`n_run` as a batch dimension) and bounded on-device spike-recording buffers for large runs.
+  </Card>
+  <Card title="Brian2GeNN" icon="code">
+    Brian2GeNN 1.7.0 as a Brian2 standalone device targeting GeNN/CUDA. Requires a separate **brain-fly-brian2genn** environment. Independent trials are run with deterministic per-trial C RNG seeds.
+  </Card>
+</CardGroup>
+
+<Note>
+  Brian2GeNN must be run from a separate conda environment (`brain-fly-brian2genn`) because Brian2GeNN 1.7.0 pins `Brian2 < 2.6`, which conflicts with Brian2CUDA's requirement for Brian2 2.8.0. All other backends share the main `brain-fly` environment.
+</Note>
+
+## Relation to Shiu et al.
+
+Fly Brain is based on the paper *A leaky integrate-and-fire computational model based on the connectome of the entire adult Drosophila brain reveals insights into sensorimotor processing* (Shiu et al., [Nature 2024](https://www.nature.com/articles/s41586-024-07763-9)). That paper introduced the Brian2 LIF network over the FlyWire connectome and demonstrated **91% prediction accuracy** against experimental optogenetic activation data collected from live *Drosophila*.
+
+The original Brian2 code from that publication lives in `code/paper-phil-drosophila/` and is kept intact as a reference. The benchmark project extends it in two ways: it ports the model faithfully to five additional computational frameworks, and it replaces the per-CPU-core parallel trial loop with framework-native batching and GPU acceleration. Brian2 CPU therefore serves as the ground-truth reference against which every other backend is validated using active-neuron overlap (Jaccard index), per-neuron firing-rate correlation, and spike-count ratios.
+
+## License
+
+The main Fly Brain codebase is released under the **GNU General Public License v2.0 or later** (`GPL-2.0-or-later`). See [LICENSE](https://github.com/eonsystemspbc/fly-brain/blob/main/LICENSE) for the full text.
+
+The Shiu et al. Brian2 materials in `code/paper-phil-drosophila/` retain their original **MIT License** and are available under those terms. Adapted NEST GPU model files retain their `GPL-2.0-or-later` notices.

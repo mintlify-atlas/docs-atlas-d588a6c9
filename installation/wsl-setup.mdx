@@ -1,0 +1,106 @@
+---
+title: "Full WSL2 + CUDA Setup from a Fresh Windows Machine"
+sidebarTitle: "WSL Setup"
+description: "Step-by-step guide to install WSL2, Ubuntu 22.04, CUDA 12.5, and Miniconda on Windows 11 before setting up Fly Brain."
+---
+
+If you are starting from a fresh Windows 11 machine with no Linux environment configured, this guide walks you through every step needed before you can create the `brain-fly` conda environment: installing WSL2, provisioning Ubuntu 22.04, installing the CUDA 12.5 Toolkit for WSL, and setting up Miniconda. The steps below are drawn directly from `scripts/setup_WSL_CUDA.sh` in this repository.
+
+<Warning>
+  `scripts/setup_WSL_CUDA.sh` is provided as a **reference script**, not a one-shot installer. Review each command before running it in your environment — in particular, CUDA toolkit versions, apt repository URLs, and Miniconda installer hashes may have changed since the script was written. Some commands (e.g. `update-alternatives`) will prompt for interactive input.
+</Warning>
+
+## Steps
+
+<Steps>
+  <Step title="Install WSL2 with Ubuntu 22.04">
+    Open a PowerShell or Windows Terminal window as Administrator and run:
+
+    ```bash
+    wsl --install -d Ubuntu-22.04
+    ```
+
+    Windows will download and register the Ubuntu 22.04 distribution and prompt you to create a UNIX username and password. Restart if prompted. After restart, launch Ubuntu from the Start menu to complete first-run setup.
+
+    If you previously had a broken Ubuntu registration, unregister it first with `wsl --unregister Ubuntu-22.04` before re-installing.
+  </Step>
+
+  <Step title="Update the system and install gcc-11 / g++-11">
+    Inside the Ubuntu 22.04 terminal, update all packages and install the GCC 11 toolchain required by NEST GPU's CUDA build:
+
+    ```bash
+    sudo apt update
+    sudo apt upgrade -y
+    sudo apt install software-properties-common
+    sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+    sudo apt update
+    sudo apt install gcc-11 g++-11
+    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 11
+    sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 11
+    sudo update-alternatives --config gcc
+    sudo update-alternatives --config g++
+    gcc --version
+    ```
+  </Step>
+
+  <Step title="Install the CUDA 12.5 Toolkit (WSL-Ubuntu variant)">
+    NVIDIA publishes a dedicated WSL-Ubuntu CUDA package that does not include the GPU driver (the driver lives on the Windows side). Download and install the local `.deb` package:
+
+    ```bash
+    wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
+    sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
+
+    wget https://developer.download.nvidia.com/compute/cuda/12.5.0/local_installers/cuda-repo-wsl-ubuntu-12-5-local_12.5.0-1_amd64.deb
+    sudo dpkg -i cuda-repo-wsl-ubuntu-12-5-local_12.5.0-1_amd64.deb
+    sudo cp /var/cuda-repo-wsl-ubuntu-12-5-local/cuda-*-keyring.gpg /usr/share/keyrings/
+
+    sudo apt-get update
+    sudo apt-get -y install cuda-toolkit-12-5
+    ```
+
+    Verify the installation with `nvcc --version`. You should see `release 12.5`.
+  </Step>
+
+  <Step title="Add CUDA paths to ~/.bashrc">
+    Make the CUDA binaries and libraries available in every new shell session:
+
+    ```bash
+    echo '' >> ~/.bashrc
+    echo '# CUDA paths' >> ~/.bashrc
+    echo 'export PATH=${PATH}:/usr/local/cuda-12.5/bin' >> ~/.bashrc
+    echo 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/cuda-12.5/lib64' >> ~/.bashrc
+    source ~/.bashrc
+    ```
+
+    Confirm with `nvcc --version` and `echo $CUDA_PATH` after sourcing.
+  </Step>
+
+  <Step title="Install Miniconda">
+    Download the latest Miniconda installer for Linux x86_64 and run it:
+
+    ```bash
+    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+    bash ./Miniconda3-latest-Linux-x86_64.sh
+    source ~/.bashrc
+    conda --version
+    ```
+
+    Accept the license agreement and allow the installer to initialize conda in `~/.bashrc`. After `source ~/.bashrc` you should see the `(base)` prefix in your prompt and `conda --version` should print a version string.
+  </Step>
+
+  <Step title="Create and activate the brain-fly environment">
+    Navigate to the `fly-brain` repository directory (e.g. under `/mnt/c/Users/YOUR_USERNAME/GitHub/fly-brain` if you cloned on the Windows side) and create the main conda environment:
+
+    ```bash
+    conda env create -f environment.yml
+    conda activate brain-fly
+    python -c "import brian2; import torch; print('OK')"
+    ```
+
+    See [Main Environment](/installation/main-environment) for the full list of packages installed and optional system dependencies needed for PyGeNN.
+  </Step>
+</Steps>
+
+<Note>
+  NEST GPU requires a separate build-from-source step that is **not** covered by this WSL setup guide. Once your WSL2 + CUDA environment is working and `brain-fly` is active, follow the [NEST GPU Installation](/installation/nest-gpu) guide to compile the custom `user_m1` neuron model and install NEST GPU before using the `--nestgpu` backend.
+</Note>

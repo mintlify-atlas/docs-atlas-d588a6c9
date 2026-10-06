@@ -1,0 +1,99 @@
+---
+title: "Install the brain-fly Conda Environment"
+sidebarTitle: "Main Environment"
+description: "Set up the brain-fly conda environment for Brian2, Brian2CUDA, PyTorch, NEST GPU, and GeNN backends on Linux with CUDA 12.x."
+---
+
+The `brain-fly` conda environment is the single entry point for running five of the six Fly Brain simulation backends: Brian2 (CPU), Brian2CUDA (GPU), PyTorch (GPU), NEST GPU, and GeNN. If you are on a Linux machine with an NVIDIA GPU and CUDA 12.x installed, this environment gives you everything you need to reproduce the whole-brain LIF benchmarks.
+
+## Prerequisites
+
+Before creating the environment, confirm the following are in place:
+
+- **Linux** — Ubuntu 22.04 (bare metal or WSL2 on Windows 11). See [WSL Setup](/installation/wsl-setup) for a from-scratch Windows guide.
+- **NVIDIA GPU with CUDA 12.x** — tested on RTX 4070 with CUDA 12.5/12.6. Verify with `nvcc --version` and `nvidia-smi`.
+- **Miniconda or Anaconda** — any recent version. Install from [docs.conda.io](https://docs.conda.io/en/latest/miniconda.html) if needed.
+
+## Install Steps
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/eonsystemspbc/fly-brain.git
+    cd fly-brain
+    ```
+  </Step>
+
+  <Step title="Create the conda environment">
+    Run the following command from the repository root. Conda will resolve all pinned dependencies, including CUDA-enabled PyTorch and PyGeNN 5.4.0:
+
+    ```bash
+    conda env create -f environment.yml
+    ```
+  </Step>
+
+  <Step title="Activate the environment">
+    ```bash
+    conda activate brain-fly
+    ```
+  </Step>
+
+  <Step title="Install optional system dependencies (Ubuntu / WSL)">
+    PyGeNN's source build requires `pkg-config` and `libffi` headers. If the environment creation step fails during PyGeNN installation, run:
+
+    ```bash
+    sudo apt-get install -y pkg-config libffi-dev
+    ```
+
+    Then re-run `conda env create -f environment.yml` (or reinstall only PyGeNN — see the GeNN section below).
+  </Step>
+
+  <Step title="Verify the installation">
+    A quick sanity check that the two most critical packages are importable:
+
+    ```bash
+    python -c "import brian2; import torch; print('OK')"
+    ```
+
+    You should see `OK` printed without errors.
+  </Step>
+</Steps>
+
+## Installing GeNN (PyGeNN 5.4.0)
+
+PyGeNN 5.4.0 is listed directly in `environment.yml` as a pip dependency and is installed automatically when you run `conda env create`. If for any reason it was skipped or you need to reinstall it manually, first export the CUDA paths and then run the pip install from inside the active `brain-fly` environment:
+
+```bash
+export CUDA_PATH=/usr/local/cuda-12.5
+export CUDA_HOME=$CUDA_PATH
+export PATH=$CUDA_PATH/bin:$PATH
+pip install https://github.com/genn-team/genn/archive/refs/tags/5.4.0.zip
+```
+
+Adjust `cuda-12.5` to match the CUDA version installed on your system (e.g. `cuda-12.6`). The `CUDA_PATH` and `CUDA_HOME` variables must be set at install time so that GeNN's build system can locate the CUDA compiler (`nvcc`).
+
+## Packages Installed
+
+The table below lists the key packages defined in `environment.yml`:
+
+| Package | Version / Source | Notes |
+|---|---|---|
+| `python` | 3.10 | Base interpreter |
+| `brian2cuda` | 1.0a7 | CUDA standalone backend for Brian2 |
+| `torch` | Latest CUDA 12.6 build | Via `--extra-index-url` from PyTorch CDN |
+| `PyGeNN` | 5.4.0 | Installed from GitHub archive zip |
+| `numpy` | 1.26.4 | Pinned for ABI compatibility |
+| `pandas` | latest | Result aggregation |
+| `pyarrow` | latest | Parquet spike export |
+| `scipy` | latest | Sparse matrix utilities |
+| `matplotlib` | latest | Plotting |
+| `joblib` | latest | Parallelism helpers |
+| `jupyter` / `ipykernel` | latest | Notebook support |
+
+<Warning>
+  The Brian2GeNN backend (`--brian2genn`) pins Brian2 to a version earlier than 2.6, which conflicts directly with the Brian2 2.8.0 requirement of Brian2CUDA. For this reason, Brian2GeNN runs from a **separate** `brain-fly-brian2genn` environment and must not be mixed with `brain-fly`. See [Brian2GeNN Installation](/installation/brian2genn) for setup instructions.
+</Warning>
+
+<Note>
+  NEST GPU cannot be installed via conda or pip — it must be **compiled from source** with a custom `user_m1` neuron model before the `--nestgpu` backend will work. The `brain-fly` environment alone is not sufficient. See [NEST GPU Installation](/installation/nest-gpu) for the full build walkthrough.
+</Note>

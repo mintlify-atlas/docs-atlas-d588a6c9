@@ -1,0 +1,90 @@
+---
+title: "Install Brian2GeNN in an Isolated Environment"
+sidebarTitle: "Brian2GeNN"
+description: "Create the brain-fly-brian2genn conda environment for the Brian2GeNN 1.7.0 backend, which requires Brian2 < 2.6 and GeNN 4.x."
+---
+
+The `--brian2genn` backend uses Brian2GeNN 1.7.0 as a Brian2 standalone device that targets GeNN/CUDA. Because Brian2GeNN 1.7.0 pins Brian2 to a version earlier than 2.6, it cannot share an environment with Brian2CUDA, which requires Brian2 2.8.0. The two are fundamentally incompatible at the package level, so Brian2GeNN lives in its own `brain-fly-brian2genn` conda environment that is completely isolated from the main `brain-fly` environment.
+
+## Prerequisites
+
+- **NVIDIA GPU** with CUDA 12.x drivers installed and `nvidia-smi` visible in the shell.
+- **CUDA 12.x Toolkit** — specifically the `nvcc` compiler and `libcuda` must be on the system. See [WSL Setup](/installation/wsl-setup) if building on Windows.
+- **GeNN 4.9.0 source tree** — Brian2GeNN 1.7.0 calls GeNN 4.x command-line scripts such as `genn-buildmodel.sh` at runtime. Download or clone the [GeNN 4.9.0 release](https://github.com/genn-team/genn/releases/tag/4.9.0) and unpack it before proceeding.
+
+## Install Steps
+
+<Steps>
+  <Step title="Create the conda environment">
+    From the `fly-brain` repository root, create the isolated Brian2GeNN environment:
+
+    ```bash
+    conda env create -f environment-brian2genn.yml
+    ```
+
+    This installs `brian2genn==1.7.0` and PyGeNN 5.4.0 alongside Python 3.10, numpy 1.26.4, pandas, pyarrow, scipy, and matplotlib — the same analysis stack used by all other backends.
+  </Step>
+
+  <Step title="Activate the environment">
+    ```bash
+    conda activate brain-fly-brian2genn
+    ```
+
+    All Brian2GeNN benchmark runs must use this environment. Do **not** switch to `brain-fly`; the Brian2 versions are incompatible.
+  </Step>
+
+  <Step title="Set the GeNN 4.x source path">
+    Place your GeNN 4.9.0 source tree at `~/.local/src/genn-4.9.0`, or point `BRIAN2GENN_GENN_PATH` to wherever you unpacked it:
+
+    ```bash
+    # Option A — default path (no extra export needed at runtime)
+    mkdir -p ~/.local/src
+    mv genn-4.9.0  ~/.local/src/genn-4.9.0
+
+    # Option B — custom path
+    export BRIAN2GENN_GENN_PATH=/your/custom/path/to/genn-4.9.0
+    ```
+  </Step>
+
+  <Step title="Export all required environment variables">
+    Set the CUDA and GeNN paths that Brian2GeNN needs at code-generation time. Replace `cuda-12.5` with your installed CUDA version if different:
+
+    ```bash
+    export CUDA_PATH=/usr/local/cuda-12.5
+    export CUDA_HOME=$CUDA_PATH
+    export BRIAN2GENN_GENN_PATH=$HOME/.local/src/genn-4.9.0
+    export GENN_PATH=$BRIAN2GENN_GENN_PATH
+    export PATH=$GENN_PATH/bin:$CUDA_PATH/bin:$PATH
+    export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
+    ```
+
+    Add these lines to your `~/.bashrc` (or `~/.bash_profile`) to make them permanent across sessions.
+  </Step>
+</Steps>
+
+## Running Brian2GeNN
+
+Once the environment is active and the variables are set, invoke the Brian2GeNN backend through the standard `main.py` entry point:
+
+```bash
+# Single 1-second trial
+python main.py --brian2genn --t_run 1 --n_run 1
+
+# Multiple durations
+python main.py --brian2genn --t_run 0.1 1 10 --n_run 1
+
+# Nature-paper benchmark suite (from the brain-fly-brian2genn environment)
+python main.py --brian2genn --paper --run-label nature_2026_07
+```
+
+Results are appended to the same `data/benchmark-results.csv` file used by the main-environment backends, using the same per-spike parquet schema and the same upstream Poisson drive, so Brian2GeNN outputs can be directly compared against the other five frameworks.
+
+## Known Limitations
+
+- **No true GeNN batching for `n_run > 1`** — Brian2GeNN cannot run independent trials as a single batched GeNN execution the way the direct `--genn` backend can. When `n_run > 1` is requested, the runner performs independent sequential build/run trials, each with a deterministic per-trial C RNG seed. Throughput will be lower than the native GeNN backend for large trial counts.
+- **Timing column semantics differ** — the `sim_time` column in the CSV records GeNN executable time (the compiled model actually running on the GPU). The `build_time` column records the Brian2GeNN code-generation and compilation overhead, which is substantial on the first run but cached on subsequent runs.
+- **Environment isolation is mandatory** — always confirm `conda activate brain-fly-brian2genn` before launching any `--brian2genn` run. Accidentally running under `brain-fly` will fail at import time due to the Brian2 version mismatch.
+
+<Note>
+  The Brian2 version pin is not a soft constraint — Brian2GeNN 1.7.0 calls internal Brian2 APIs that were removed in Brian2 2.6. Installing `brian2genn==1.7.0` into an environment with Brian2 ≥ 2.6 will result in import errors or silent incorrect behaviour. The `environment-brian2genn.yml` file manages this pin automatically; do not upgrade Brian2 inside `brain-fly-brian2genn`.
+</Note>

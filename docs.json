@@ -1,72 +1,80 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "Fly Brain",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#2196f3",
+    "light": "#4685dc",
+    "dark": "#94bcec"
   },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
+  "favicon": "https://media.brand.dev/602bb307-f057-4716-a0ac-bda052df3c84.png",
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:support@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/eonsystemspbc/fly-brain"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/eonsystemspbc/fly-brain"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["introduction", "concepts"]
+          },
+          {
+            "group": "Getting Started",
+            "pages": [
+              "installation/main-environment",
+              "installation/brian2genn",
+              "installation/nest-gpu",
+              "installation/wsl-setup"
+            ]
+          },
+          {
+            "group": "Running Benchmarks",
+            "pages": [
+              "benchmarks/quickstart",
+              "benchmarks/cli-reference",
+              "benchmarks/paper-suite",
+              "benchmarks/output-files"
+            ]
+          },
+          {
+            "group": "Accuracy & Analysis",
+            "pages": [
+              "analysis/ground-truth",
+              "analysis/pairwise-comparison",
+              "analysis/backend-to-brian2"
+            ]
+          },
+          {
+            "group": "Framework Reference",
+            "pages": [
+              "frameworks/brian2-cpu",
+              "frameworks/brian2cuda",
+              "frameworks/pytorch",
+              "frameworks/nest-gpu",
+              "frameworks/genn",
+              "frameworks/brian2genn"
+            ]
+          },
+          {
+            "group": "Data & Connectome",
+            "pages": [
+              "data/connectome",
+              "data/experiments",
+              "data/results-schema"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

@@ -1,0 +1,98 @@
+---
+title: "Build and Install NEST GPU from Source"
+sidebarTitle: "NEST GPU"
+description: "Compile NEST GPU with the custom user_m1 neuron model required by Fly Brain's --nestgpu backend, including CMake build steps for CUDA."
+---
+
+NEST GPU cannot be installed via pip or conda — the `--nestgpu` backend requires a custom neuron model called `user_m1` that implements a leaky integrate-and-fire neuron with alpha synapses as a CUDA kernel. This model is not part of the upstream NEST GPU distribution, so NEST GPU must be compiled from source with the patched files supplied in this repository before the backend will work.
+
+<Note>
+  **Build prerequisites:** NVIDIA CUDA Toolkit 12.x (including `nvcc`), CMake 3.18 or later (`sudo apt install cmake`), and `gcc`/`g++` version 11 or later. Confirm with `nvcc --version`, `cmake --version`, and `gcc --version` before proceeding.
+</Note>
+
+## Build Steps
+
+<Steps>
+  <Step title="Clone NEST GPU">
+    Clone the official NEST GPU repository to a location of your choice:
+
+    ```bash
+    git clone https://github.com/nest/nest-gpu
+    ```
+  </Step>
+
+  <Step title="Copy the custom source files">
+    From the `fly-brain` repository root, copy the patched `user_m1` neuron sources and the fixed Python library into the NEST GPU source tree. Replace `/path/to/nest-gpu` with the actual path where you cloned NEST GPU:
+
+    ```bash
+    cp scripts/nestgpu_source_files/src/user_m1.{h,cu}  /path/to/nest-gpu/src/
+    cp scripts/nestgpu_source_files/pythonlib/nestgpu.py /path/to/nest-gpu/pythonlib/
+    ```
+
+    The patched `nestgpu.py` fixes a bug in weight array initialization (lines 2225–2227 of the original file) that causes incorrect synapse weights when building the full fly-brain connectivity. See the [Custom Source Files](#custom-source-files) section below for details on what `user_m1` implements.
+  </Step>
+
+  <Step title="Configure the CMake build">
+    Create a build directory, then run CMake. Set `-DCMAKE_CUDA_ARCHITECTURES` to the compute capability of your GPU (see the table below). The example uses `89` for an RTX 4070:
+
+    ```bash
+    cd /path/to/nest-gpu
+    mkdir build && cd build
+
+    cmake -DCMAKE_CUDA_ARCHITECTURES=89 \
+          -DCMAKE_INSTALL_PREFIX=$HOME/.nest-gpu-build \
+          /path/to/nest-gpu
+    ```
+
+    Adjust `$HOME/.nest-gpu-build` to any install prefix you prefer. The Python bindings will be placed under `<prefix>/lib/pythonX.Y/site-packages/`.
+  </Step>
+
+  <Step title="Build and install">
+    Compile using all available CPU cores, then install to the prefix set in the previous step:
+
+    ```bash
+    make -j$(nproc) && make install
+    ```
+
+    A full build typically takes 5–15 minutes depending on the machine. Watch for CUDA compiler errors that indicate a wrong architecture value — rerun CMake with the correct `-DCMAKE_CUDA_ARCHITECTURES` if needed.
+  </Step>
+
+  <Step title="Configure PYTHONPATH">
+    Make the installed NEST GPU Python bindings importable from the `brain-fly` environment:
+
+    ```bash
+    export PYTHONPATH=$HOME/.nest-gpu-build/lib/python3.10/site-packages:$PYTHONPATH
+    ```
+
+    Add this line to your `~/.bashrc` to make it permanent. Verify with:
+
+    ```bash
+    python -c "import nestgpu; print(nestgpu.__file__)"
+    ```
+  </Step>
+</Steps>
+
+## CUDA Architecture Values
+
+Set `-DCMAKE_CUDA_ARCHITECTURES` to the value that matches your GPU:
+
+| GPU | Architecture Value |
+|---|---|
+| RTX 4070 / 4080 / 4090 (Ada Lovelace) | `89` |
+| RTX 3090 / 3080 / A6000 (Ampere) | `86` |
+| A100 (Ampere, data center) | `80` |
+| V100 (Volta) | `70` |
+| RTX 2080 / 2070 (Turing) | `75` |
+
+If you are unsure, run `nvidia-smi --query-gpu=compute_cap --format=csv,noheader` and remove the dot from the output (e.g. `8.9` → `89`).
+
+## Custom Source Files
+
+The two files copied in Step 2 serve distinct roles:
+
+- **`user_m1.h` / `user_m1.cu`** — define the `user_m1` neuron model as a custom CUDA kernel. The model implements the standard LIF membrane equation with an alpha-function synapse current, matching the neuron dynamics used by the Brian2 ground-truth backend. Without these files, `nestgpu.UserNeuron` is unavailable and `run_nestgpu.py` will fail at model construction.
+- **`nestgpu.py`** (patched) — the Python interface layer for NEST GPU. The upstream version contains a bug in the `Connect` weight-array initialization path (lines 2225–2227) that corrupts synapse weights when setting up the ~5 million fly-brain synapses. The patched version corrects the array shape handling so weights are loaded correctly.
+
+<Tip>
+  Setting up NEST GPU on a fresh Windows machine? Start with the [WSL2 + CUDA Setup](/installation/wsl-setup) guide to install WSL2, Ubuntu 22.04, CUDA 12.5, and Miniconda before returning to these build steps.
+</Tip>

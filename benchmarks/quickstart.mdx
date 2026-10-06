@@ -1,0 +1,145 @@
+---
+title: "Get Started: Run Your First Brain Simulation"
+sidebarTitle: "Quickstart"
+description: "Run a Fly Brain benchmark in under five minutes: create the conda environment, choose a backend, and inspect the spike output CSV."
+---
+
+This quickstart walks you through setting up the `brain-fly` conda environment, running a 1-second leaky integrate-and-fire simulation of the entire adult *Drosophila* brain, and inspecting the timing CSV and spike parquet files that every benchmark produces. You will be running real neural simulations — ~138k neurons and ~5M synapses — across one or more computational backends in a single command.
+
+<Note>
+**Prerequisites**
+
+- **Linux** — tested on Ubuntu 22.04 (including WSL2 on Windows 11)
+- **NVIDIA GPU** with CUDA 12.x — tested on RTX 4070; follow the [official CUDA installation guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/)
+- **Miniconda or Anaconda** — see the [Miniconda installation docs](https://docs.conda.io/en/latest/miniconda.html)
+
+The `--nestgpu` backend additionally requires NEST GPU compiled from source with a custom `user_m1` neuron model. All other backends are installed automatically by `environment.yml`.
+</Note>
+
+## Steps
+
+<Steps>
+
+### Create the environment
+
+Clone the repository and create the `brain-fly` conda environment. This installs Brian2, Brian2CUDA, CUDA-enabled PyTorch, NEST GPU, and GeNN (PyGeNN 5.4.0) in a single step.
+
+```bash
+conda env create -f environment.yml
+conda activate brain-fly
+```
+
+On Ubuntu or WSL2, PyGeNN's source build also needs two system packages:
+
+```bash
+sudo apt-get install -y pkg-config libffi-dev
+```
+
+### Run a 1-second benchmark across all main backends
+
+Run a quick 1-second, single-trial benchmark across all five main-environment backends (Brian2 CPU → Brian2CUDA → PyTorch → NEST GPU → GeNN). The `--no_log_file` flag keeps all output on the console.
+
+```bash
+python main.py --t_run 1 --n_run 1 --no_log_file
+```
+
+Results are written incrementally to `data/benchmark-results.csv` as each backend completes. You will see a formatted summary table printed to the console for each backend.
+
+### Run a specific backend
+
+Backend flags are combinable. Pass one or more of the following to target a subset:
+
+```bash
+# Brian2 C++ standalone (CPU) — canonical ground-truth backend
+python main.py --brian2-cpu --t_run 1 --n_run 1
+
+# PyTorch (GPU, batched trials)
+python main.py --pytorch --t_run 1 --n_run 1
+
+# GeNN via PyGeNN 5.4.0 (CUDA)
+python main.py --genn --t_run 1 --n_run 1
+```
+
+The Brian2GeNN backend requires the separate `brain-fly-brian2genn` environment because it pins Brian2 < 2.6, which conflicts with Brian2CUDA's Brian2 2.8.0 requirement:
+
+```bash
+conda activate brain-fly-brian2genn
+python main.py --brian2genn --t_run 1 --n_run 1
+```
+
+### Inspect timing results in `data/benchmark-results.csv`
+
+After each run, open `data/benchmark-results.csv` to review timing. The key columns are:
+
+| Column | Description |
+|---|---|
+| `framework` | Human-readable backend name (e.g. `Brian2 (CPU)`, `PyTorch`) |
+| `n_run` | Number of independent trials |
+| `t_run` | Simulation duration in seconds |
+| `setup_time` | Network/model creation time (seconds) |
+| `build_time` | CUDA codegen and compile time (seconds); 0 for non-build backends |
+| `sim_time` | Simulation execution time (seconds) — spike I/O is excluded |
+| `total_time` | Total elapsed time (seconds) |
+| `realtime_ratio` | `(n_run × t_run) / sim_time` — how many times faster than biological real-time |
+| `spikes` | Total spike count across all trials |
+| `active_neurons` | Number of unique neurons that fired at least once |
+| `status` | `success` or an error message string |
+
+### Examine spike parquet files in `data/results/`
+
+Spike timing exports are written to Parquet files outside the timed simulation section, so file I/O does not contaminate `sim_time`. Each file has one row per spike with the following columns:
+
+| Column | Description |
+|---|---|
+| `time_ms` | Spike time in milliseconds (canonical column for new exports) |
+| `t` | Legacy spike time column, kept for compatibility with existing analysis scripts |
+| `trial` | Trial index (0-based) |
+| `neuron_index` | Integer neuron index within the model |
+| `flywire_id` | FlyWire connectome neuron ID |
+| `exp_name` | Experiment name string |
+
+Load a parquet file directly with pandas:
+
+```python
+import pandas as pd
+spikes = pd.read_parquet('data/results/pytorch_t1.0s_n1.parquet')
+print(spikes.head())
+```
+
+</Steps>
+
+## Try Different Experiments
+
+Two stimulation experiments are available, selectable with `--experiment`:
+
+```bash
+# Sugar GRNs (default): 21 sugar gustatory receptor neurons driven at 200 Hz
+python main.py --experiment sugar --t_run 1 --n_run 1
+
+# P9 forward-walking: 2 P9 descending neurons driven at 100 Hz
+python main.py --experiment p9 --t_run 1 --n_run 1
+```
+
+The `sugar` experiment (default) stimulates 21 Sugar GRN neurons identified in the FlyWire v783 connectome. The `p9` experiment stimulates 2 P9 neurons associated with forward-walking motor output.
+
+## Combine Backends
+
+Backend flags are fully combinable. The following runs Brian2 CPU and PyTorch across a 2×2 parameter grid (t_run = 0.1s and 1s; n_run = 1 and 4):
+
+```bash
+python main.py --brian2-cpu --pytorch --t_run 0.1 1 --n_run 1 4
+```
+
+Results for all combinations are appended to the same `data/benchmark-results.csv`, making it easy to compare backends side by side.
+
+<Tip>
+Pass `--no_log_file` during development to keep all log output on the console rather than writing to `data/results/benchmarks.log`. This is especially helpful when iterating quickly on a single backend.
+</Tip>
+
+<Note>
+Spike parquet I/O is intentionally excluded from `sim_time` so that file system performance does not affect timing comparisons. If you only need timing data and want to avoid writing parquet files altogether, pass `--disable-spike-io`:
+
+```bash
+python main.py --t_run 1 --n_run 1 --disable-spike-io
+```
+</Note>

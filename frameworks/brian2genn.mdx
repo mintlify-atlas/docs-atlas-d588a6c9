@@ -1,0 +1,88 @@
+---
+title: "Brian2GeNN Backend: Brian2 Targeting GeNN/CUDA"
+sidebarTitle: "Brian2GeNN"
+description: "Brian2GeNN 1.7.0 uses Brian2 as a frontend targeting GeNN 4.x as the CUDA device, requiring an isolated environment due to Brian2 version conflicts."
+---
+
+Brian2GeNN uses Brian2GeNN 1.7.0 as a Brian2 standalone device that targets GeNN/CUDA for execution. It is scientifically equivalent to the other Fly Brain backends — same FlyWire connectome, same LIF equations, same Poisson drive, same Parquet spike schema — but is intentionally isolated in its own conda environment because of an irreconcilable Brian2 version conflict with Brian2CUDA.
+
+## Why It Is Isolated
+
+Brian2GeNN 1.7.0 pins `Brian2 < 2.6`, while Brian2CUDA requires `Brian2 2.8.0`. Running both packages in the same environment would break one or the other. The solution is a separate `brain-fly-brian2genn` conda environment defined in `environment-brian2genn.yml`:
+
+```bash
+conda env create -f environment-brian2genn.yml
+conda activate brain-fly-brian2genn
+```
+
+All five other backends run from the main `brain-fly` environment. Brian2GeNN is the only backend that cannot.
+
+## Architecture
+
+**Brian2 frontend**
+
+The runner constructs the same Brian2 network used by the CPU and Brian2CUDA backends: `NeuronGroup` with LIF equations, `Synapses` with alpha-function delay, and `PoissonInput` for neural activation. Brian2GeNN requires two additional per-neuron state variables (`stim_weight`, `stim_weight2`) to express the vectorised Poisson drive in a GeNN-compatible form.
+
+**GeNN 4.x backend**
+
+Calling `set_device('genn')` switches Brian2 into Brian2GeNN mode, which internally invokes GeNN 4.x's `genn-buildmodel.sh` script to generate and compile CUDA code. This is GeNN 4.x — **not** the PyGeNN 5.4.0 API used by the `--genn` backend — and the two are incompatible.
+
+**Independent sequential trials with deterministic seeds**
+
+Brian2GeNN cannot use GeNN's native batch dimension to parallelise trials. For `n_run > 1`, each trial is an independent full build-and-run cycle: the Brian2GeNN model is regenerated, recompiled, and re-executed from scratch. Deterministic per-trial C RNG seeds are injected via:
+
+```python
+device.insert_code('main', f'srand({trial_seed});')
+```
+
+where `trial_seed = base_seed + trial_idx + round_idx * 100000`.
+
+**Spike output schema**
+
+Spike trains are exported using the same canonical Parquet schema as all other backends: one row per spike with columns `t`, `time_ms`, `trial`, `neuron_index`, `flywire_id`, and `exp_name`.
+
+## Timing Columns
+
+| Column | What it measures |
+|---|---|
+| `sim_time` | Wall-clock time of the GeNN executable(s) across all `n_run` trials |
+| `build_time` | Brian2GeNN code generation and NVCC compilation overhead per trial, summed |
+
+For `n_run > 1`, both `sim_time` and `build_time` are the sum across all trials; the per-trial averages appear in the log output.
+
+## CLI Usage
+
+Activate the isolated environment before running:
+
+```bash
+# Must use brain-fly-brian2genn environment
+conda activate brain-fly-brian2genn
+python main.py --brian2genn --t_run 1 --n_run 1
+
+# Paper suite
+python main.py --brian2genn --paper --run-label nature_2026_07
+```
+
+## Environment Variables
+
+Brian2GeNN needs CUDA and GeNN 4.x on `PATH`. Export these before running (adjust paths for your system):
+
+```bash
+export CUDA_PATH=/usr/local/cuda-12.5
+export CUDA_HOME=$CUDA_PATH
+export BRIAN2GENN_GENN_PATH=$HOME/.local/src/genn-4.9.0
+export GENN_PATH=$BRIAN2GENN_GENN_PATH
+export PATH=$GENN_PATH/bin:$CUDA_PATH/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
+```
+
+The runner's `_configure_environment()` function applies these automatically if the environment variables are already set, and also probes `~/.local/src/genn-4.9.0` as a fallback for `GENN_PATH`.
+
+## Known Limitations
+
+- **No native batching** — each trial requires a full Brian2GeNN codegen and compilation cycle. For `n_run = 32`, the total build time can exceed 30–60 minutes depending on hardware.
+- **GeNN 4.x only** — Brian2GeNN 1.7.0 relies on the `genn-buildmodel.sh` command-line interface from GeNN 4.9.0. It is incompatible with the PyGeNN 5.4.0 Python API used by the `--genn` backend; both cannot coexist in the same environment.
+
+<Warning>
+Do **not** run `--brian2genn` from the `brain-fly` environment. Brian2 2.8.0 (required by Brian2CUDA) is incompatible with Brian2GeNN 1.7.0. The run will fail with import errors or silent incorrect behaviour. Always activate `brain-fly-brian2genn` first.
+</Warning>

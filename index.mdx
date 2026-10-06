@@ -1,20 +1,98 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "Fly Brain: Whole-brain Drosophila LIF Simulation"
+sidebarTitle: "Home"
+description: "Simulate the adult Drosophila brain using the FlyWire connectome across six GPU-accelerated frameworks: Brian2, Brian2CUDA, PyTorch, NEST GPU, GeNN, and Brian2GeNN."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+Fly Brain is a whole-brain leaky integrate-and-fire (LIF) simulation of the adult *Drosophila melanogaster* brain, built from the [FlyWire](https://flywire.ai/) connectome with approximately 138,000 neurons and 5 million synapses. It lets you activate or silence arbitrary neuron populations and observe the resulting spike propagation — and benchmark that simulation across six interchangeable computational backends on CPU and GPU.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/benchmarks/quickstart">
+    Run your first benchmark in minutes with the main conda environment
+  </Card>
+  <Card title="Installation" icon="download" href="/installation/main-environment">
+    Set up the brain-fly conda environment with CUDA-enabled backends
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/benchmarks/cli-reference">
+    Full reference for all main.py flags, backends, and parameter options
+  </Card>
+  <Card title="Framework Reference" icon="microchip" href="/frameworks/brian2-cpu">
+    Architecture details, timing columns, and usage notes for each backend
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What You Can Do
+
+Fly Brain supports two types of neural manipulations on any subset of FlyWire neurons:
+
+- **Activation** — drive target neurons with Poisson spiking at a fixed frequency (optogenetic activation model)
+- **Silencing** — zero out all synaptic connections to and from a set of neurons (optogenetic silencing model)
+
+Every backend produces identical spike-timing outputs in a canonical Parquet schema, so you can compare results across frameworks at any scale.
+
+## Six Backends, One Interface
+
+<CardGroup cols={3}>
+  <Card title="Brian2 (CPU)" icon="cpu" href="/frameworks/brian2-cpu">
+    C++ standalone, ground-truth reference
+  </Card>
+  <Card title="Brian2CUDA" icon="bolt" href="/frameworks/brian2cuda">
+    CUDA standalone, GPU-accelerated
+  </Card>
+  <Card title="PyTorch" icon="fire" href="/frameworks/pytorch">
+    Batched GPU trials via sparse matmul
+  </Card>
+  <Card title="NEST GPU" icon="layer-group" href="/frameworks/nest-gpu">
+    Custom CUDA kernel (user_m1 neuron)
+  </Card>
+  <Card title="GeNN" icon="gear" href="/frameworks/genn">
+    PyGeNN 5.4.0 with CUDA batching
+  </Card>
+  <Card title="Brian2GeNN" icon="code-branch" href="/frameworks/brian2genn">
+    Brian2GeNN 1.7.0 in isolated env
+  </Card>
+</CardGroup>
+
+## Getting Started
+
+<Steps>
+  <Step title="Create the conda environment">
+    Install the `brain-fly` environment, which includes Brian2, Brian2CUDA, PyTorch (CUDA), NEST GPU, and GeNN:
+    ```bash
+    conda env create -f environment.yml
+    conda activate brain-fly
+    ```
+  </Step>
+  <Step title="Run a quick benchmark">
+    Simulate 1 second of brain activity across all five main-environment backends:
+    ```bash
+    python main.py --t_run 1 --n_run 1 --no_log_file
+    ```
+  </Step>
+  <Step title="Review results">
+    Timing results are saved incrementally to `data/benchmark-results.csv`. Spike outputs land in `data/results/` as Parquet files.
+  </Step>
+  <Step title="Run the paper suite">
+    Reproduce the full Nature paper benchmark grid (5 rounds, 4 durations, 5 trial counts):
+    ```bash
+    python main.py --paper --run-label my_run
+    ```
+  </Step>
+</Steps>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Reproducible Paper Suite" icon="flask" href="/benchmarks/paper-suite">
+    Labeled multi-round benchmark runs that match the Nature 2024 parameter grid
+  </Card>
+  <Card title="Accuracy Validation" icon="circle-check" href="/analysis/ground-truth">
+    Compare every backend against the Brian2 CPU ground truth using Jaccard overlap and firing-rate correlation
+  </Card>
+  <Card title="Parquet Spike Exports" icon="database" href="/data/results-schema">
+    Canonical spike schema with time_ms, trial, neuron_index, and flywire_id columns
+  </Card>
+  <Card title="FlyWire Connectome" icon="brain" href="/data/connectome">
+    Built on FlyWire v783 with 138k neurons and ~5M synapses
+  </Card>
+</CardGroup>

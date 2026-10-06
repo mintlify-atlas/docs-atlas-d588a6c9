@@ -1,0 +1,137 @@
+---
+title: "Validate Backends Against Brian2 CPU Ground Truth"
+sidebarTitle: "Ground Truth"
+description: "Use compare_ground_truth.py to measure how closely each backend reproduces Brian2 CPU spike outputs via Jaccard overlap, firing-rate correlation, and spike-count ratios."
+---
+
+Brian2 CPU implements the canonical leaky integrate-and-fire model from [Shiu et al. (Nature 2024)](https://www.nature.com/articles/s41586-024-07763-9) and serves as the ground truth for neural accuracy across the Fly Brain benchmark suite. The `compare_ground_truth.py` script loads per-neuron spike trains from each backend and quantifies how faithfully they reproduce Brian2's output — giving a principled measure of biological plausibility before drawing any performance conclusions.
+
+## What Is Measured
+
+For each non-Brian2 backend the script computes four categories of metrics against the Brian2 CPU reference:
+
+**Active neuron overlap** — the set of neurons that fired at least once is compared using the Jaccard index (intersection over union), along with precision and recall. These characterize whether the backends agree on *which* neurons are active.
+
+**Per-neuron firing-rate Pearson correlation** — after computing average rates (Hz) over all trials for every shared neuron, the script calculates the Pearson correlation between the two rate vectors. A value near 1.0 indicates the backends agree on how *much* each neuron fires.
+
+**Spike-count ratio** — the total spike count of a backend divided by the Brian2 CPU total. A ratio close to 1.0 means overall network activity is equivalent.
+
+**Top deviations** — the ten neurons with the largest percentage difference in firing rate between the backend and ground truth. These entries are included in the output JSON to aid targeted debugging.
+
+All results are written to `data/ground-truth-comparison.json`.
+
+## Backends Compared
+
+The script evaluates five backends against the Brian2 CPU reference:
+
+| Backend key | Display name | Role |
+|---|---|---|
+| `brian2cpp` | Brian2 (CPU) | **Ground truth** |
+| `brian2cuda` | Brian2CUDA (GPU) | Compared |
+| `pytorch` | PyTorch (CUDA) | Compared |
+| `nestgpu` | NEST GPU | Compared |
+| `genn` | GeNN (GPU) | Compared |
+| `brian2genn` | Brian2GeNN (GPU) | Compared |
+
+## Basic Usage
+
+```bash
+# Default: t_run=1s, n_run=1
+python code/compare_ground_truth.py
+
+# Different duration and trial count
+python code/compare_ground_truth.py --t_run 10 --n_run 4
+
+# From a labeled paper run
+python code/compare_ground_truth.py --run-label nature_2026_07 --round 1
+```
+
+## CLI Flags
+
+<ParamField path="--t_run" type="float" default="1.0">
+  Simulation duration in seconds to load and compare. Must match a duration for
+  which spike parquet files have already been generated.
+</ParamField>
+
+<ParamField path="--n_run" type="int" default="1">
+  Number of trials. Firing rates are averaged across all trials before computing
+  correlation and ratio metrics.
+</ParamField>
+
+<ParamField path="--run-label" type="string">
+  Run label for labeled paper runs. When set, parquet files are read from
+  `data/results/<label>/round_<N>/` instead of the default flat `data/results/`
+  directory.
+</ParamField>
+
+<ParamField path="--round" type="int">
+  Round number to compare within a labeled run. Used together with `--run-label`
+  to select a specific `round_<N>` subdirectory.
+</ParamField>
+
+## Output File
+
+Results are written to `data/ground-truth-comparison.json`. The file has one top-level `comparisons` object whose keys are backend display names. Each entry contains:
+
+```json
+{
+  "ground_truth": "Brian2 (CPU)",
+  "experiment": "sugar GRNs @ 200 Hz (21 neurons)",
+  "t_run_sec": 1.0,
+  "n_run": 1,
+  "run_label": null,
+  "round": null,
+  "ground_truth_spikes": 482310,
+  "ground_truth_active_neurons": 9841,
+  "comparisons": {
+    "Brian2CUDA (GPU)": {
+      "spike_count": {
+        "ground_truth": 482310,
+        "backend": 481995,
+        "ratio": 0.9993
+      },
+      "active_neurons": {
+        "ground_truth": 9841,
+        "backend": 9838,
+        "shared": 9820,
+        "gt_only": 21,
+        "backend_only": 18,
+        "jaccard": 0.9960,
+        "precision": 0.9982,
+        "recall": 0.9979
+      },
+      "firing_rate": {
+        "pearson_correlation": 0.999871,
+        "median_pct_diff": 0.41,
+        "mean_pct_diff": 1.23
+      },
+      "top_deviations": [
+        {
+          "flywire_id": 720575940623456789,
+          "gt_rate_hz": 48.2,
+          "other_rate_hz": 61.7,
+          "pct_diff": 28.0
+        }
+      ],
+      "verdict": "MATCH"
+    }
+  }
+}
+```
+
+The `verdict` field is set automatically: `MATCH` when Pearson correlation > 0.99 and Jaccard > 0.90, `CLOSE` when both exceed 0.95 and 0.80 respectively, and `DEVIATED` otherwise.
+
+## How to Interpret Results
+
+- **Jaccard > 0.9** means the backend and Brian2 CPU strongly agree on which neurons are active. Values below 0.8 suggest the backend may be silencing or erroneously activating large neuron populations.
+- **Pearson correlation close to 1.0** means per-neuron firing rates match well across the network. This is the most sensitive single-number proxy for biological fidelity.
+- **Spike-count ratio close to 1.0** means total network activity is equivalent. A ratio significantly above 1.0 indicates runaway excitation; below 1.0 suggests excessive suppression.
+- **Top deviations** highlight specific neurons worth investigating — high deviations in driver neurons can cascade through the connectome.
+
+The Shiu et al. Brian2 model achieved **91% prediction accuracy** against experimental *Drosophila* data, so Brian2 CPU already represents a biologically validated reference point.
+
+<Note>
+  All backends must have already generated spike parquet files for the requested
+  `t_run` and `n_run` before running this script. Run `main.py` first to produce
+  the required parquet outputs.
+</Note>

@@ -1,0 +1,109 @@
+---
+title: "PyTorch Backend: Batched GPU LIF Simulation"
+sidebarTitle: "PyTorch"
+description: "The PyTorch backend implements the Drosophila LIF model with alpha-function synapses as a batched nn.Module, running all n_run trials simultaneously on GPU."
+---
+
+PyTorch runs all `n_run` trials in a single batched forward pass using sparse matrix multiplication, making it the fastest backend for multi-trial runs. Rather than iterating over a Brian2 network, it implements the entire LIF + alpha-synapse + refractory dynamics as a custom `nn.Module` hierarchy and steps through the simulation timestep-by-timestep with `torch.no_grad()`.
+
+## Model Architecture
+
+The model is organised as a hierarchy of `nn.Module` classes, each responsible for one part of the biophysics:
+
+**`TorchModel`** — Top-level model. Owns the `PoissonSpikeGenerator`, the sparse connectome weight matrix, and the `AlphaLIF` neuron module. On each forward call it generates Poisson spikes, computes the sparse recurrent input, and passes both through `AlphaLIF`.
+
+**`AlphaLIF`** — LIF neuron combined with an alpha-function synapse and refractory period tracking. Orchestrates the `AlphaSynapse` and `LIFNeuron` submodules and applies the refractory mask before updating conductance.
+
+**`AlphaSynapse`** — Alpha-function synapse with a configurable delay buffer. Maintains a rolling buffer of depth `steps_delay + 1` (where `steps_delay = int(tDelay / dt)`), decays conductance by `1 - dt/tauSyn` each step, and injects delayed input gated by the refractory mask.
+
+**`LIFNeuron`** — Leaky integrate-and-fire neuron with an ATan surrogate gradient for compatibility with backpropagation. Implements the same voltage update rule as the Brian2 model:
+
+```python
+v = v + voltage_stim
+v = v + time_factor * (conductance - (v - v_rest))
+spike = atan_surrogate(v - v_threshold)
+v = v - (v - v_reset) * spike  # reset on spike
+```
+
+**`PoissonSpikeGenerator`** — Bernoulli spike generator. Converts neuron firing rates to per-timestep spike probabilities (`rate * dt / 1000`) and samples with `torch.bernoulli`.
+
+## Model Parameters
+
+```python
+MODEL_PARAMS = {
+    'tauSyn':      5.0,    # ms  — synaptic (alpha) time constant
+    'tDelay':      1.8,    # ms  — synaptic delay
+    'v0':        -52.0,    # mV  — initial / resting membrane potential
+    'vReset':    -52.0,    # mV  — reset potential after spike
+    'vRest':     -52.0,    # mV  — resting potential for leak term
+    'vThreshold':-45.0,    # mV  — spike threshold
+    'tauMem':     20.0,    # ms  — membrane time constant
+    'tRefrac':     2.2,    # ms  — refractory period
+    'scalePoisson':250,    #     — Poisson weight scaling factor
+    'wScale':      0.275,  # mV  — synapse weight scale
+}
+
+DT = 0.1  # Simulation timestep in ms (matches Brian2 defaultclock.dt)
+```
+
+## Weight Caching
+
+The FlyWire connectome (~5 million synapses) is stored in `data/2025_Connectivity_783.parquet`. The `get_weights()` function converts this into a sparse PyTorch tensor on first use and caches the result:
+
+1. **COO matrix** — built from the parquet `Presynaptic_Index` / `Postsynaptic_Index` columns and stored as `data/weight_coo.pkl` (~288 MB).
+2. **CSR matrix** — converted from COO via `.to_sparse_csr()` and stored as `data/weight_csr.pkl` (~289 MB). The CSR format is the one loaded for inference, as it is more efficient for `torch.matmul` with a dense activations tensor.
+
+On subsequent runs the cached files are loaded directly, skipping the ~30-second construction step.
+
+<Tip>
+`weight_coo.pkl` and `weight_csr.pkl` are listed in `.gitignore` — they are never committed to the repository. They are auto-generated on the first run and reused on all subsequent runs.
+</Tip>
+
+## Batched Trials
+
+Setting `batch_size = n_run` in the `TorchModel` constructor allocates all per-neuron state tensors (voltage, conductance, delay buffer, refractory counter) with a leading batch dimension of size `n_run`. Every matrix multiplication and element-wise operation then processes all trials simultaneously in a single CUDA kernel invocation.
+
+This contrasts with Brian2's sequential trials, which call `device.run()` once per trial, and NEST GPU, which spawns a separate subprocess per trial. For large `n_run` values (16, 32), the batching advantage is substantial.
+
+## Forward Pass
+
+The core simulation loop advances the model one timestep at a time over `num_steps = int(t_run_sec * 1000 / DT)` steps:
+
+```python
+# Each timestep:
+poisson_spikes = poisson_generator(rates)           # Bernoulli draw
+voltage_stim   = wScale * poisson_spikes            # scale to mV
+
+weighted_spikes  = spikes @ weights.T               # sparse matmul
+recurrent_input  = wScale * weighted_spikes         # scale to mV
+
+conductance, delay_buffer, spikes, v, refrac = neurons(
+    recurrent_input,   # recurrent synaptic drive
+    voltage_stim,      # direct Poisson membrane injection
+    conductance,
+    delay_buffer,
+    spikes,
+    v,
+    refrac,
+)
+```
+
+Spike indices are collected each step via `spike_mask.nonzero()` and accumulated in CPU lists before being assembled into a Parquet DataFrame outside the timed simulation block.
+
+## CLI Usage
+
+Run 4 trials in parallel for 1 second on GPU:
+
+```bash
+python main.py --pytorch --t_run 1 --n_run 4
+```
+
+## Device Selection
+
+The runner auto-selects CUDA if available and falls back to CPU:
+
+```python
+device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
+```
+
+All tensors — weights, state variables, and intermediate activations — are moved to `device_name` before the simulation starts.

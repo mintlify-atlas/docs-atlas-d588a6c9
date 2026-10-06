@@ -1,0 +1,101 @@
+---
+title: "GeNN Backend: PyGeNN 5.4.0 Batched CUDA"
+sidebarTitle: "GeNN"
+description: "The GeNN backend uses PyGeNN 5.4.0 with the CUDA device to run batched multi-trial Drosophila LIF simulations with bounded spike recording buffers."
+---
+
+GeNN (GPU-enhanced Neuronal Networks) runs the LIF model on GPU via PyGeNN 5.4.0 with GeNN's native batch dimension for multi-trial runs. Rather than iterating over independent trials sequentially or in separate processes, GeNN tiles all `n_run` trials across the batch axis of its CUDA kernels, delivering efficient GPU utilisation for large `n_run` values.
+
+## Architecture
+
+**PyGeNN CUDA backend**
+
+The runner calls `GeNNModel('float', ..., backend='cuda')` and sets `model.batch_size = n_run`. GeNN then automatically broadcasts all neuron and synapse state arrays across the batch dimension, executing every trial in the same CUDA kernel launch.
+
+**Custom LIF neuron model**
+
+Two custom neuron models are created with `create_neuron_model`:
+
+- `FlyBrainBernoulliSource` — generates Poisson spikes by comparing a uniform random draw against `Rate * DT / 1000.0`. Targets the `Vstim` additional input variable of the LIF neurons.
+- `FlyBrainVoltageStimLIF` — implements the Brian2-compatible LIF equations inside a GeNN `sim_code` block. During each timestep it updates the membrane voltage using `Vstim` (Poisson drive) and `Isyn` (recurrent synaptic current), then checks the threshold and resets:
+
+```c
+// GeNN sim_code (per timestep):
+if (RefracTime <= 0.0) {
+    V += Vstim;
+    V += MemFactor * (G - (V - Vrest));
+    G = (G * SynDecay) + Isyn;
+} else {
+    RefracTime -= dt;
+}
+```
+
+**Delayed sparse recurrent synapses**
+
+The ~5 million FlyWire connections are wired as a `SPARSE` synapse population with `axonal_delay_steps = max(1, round(tDelay / DT))`. The delay step count is computed using `math.gcd` when aligning the recording window to the simulation length, ensuring the window divides evenly into the total step count.
+
+**Bounded spike recording window**
+
+Spike recording uses GeNN's device-side recording buffer. The recording window size is bounded by `GENN_RECORDING_WINDOW_MAX_SLOTS` (default **800,000** slots) divided by `n_run`. This prevents CUDA out-of-memory errors on large `n_run × t_run` combinations.
+
+## Model Parameters
+
+```python
+MODEL_PARAMS = {
+    'tauSyn':      5.0,    # ms  — synaptic (alpha) time constant
+    'tDelay':      1.8,    # ms  — synaptic delay
+    'v0':        -52.0,    # mV  — initial / resting membrane potential
+    'vReset':    -52.0,    # mV  — reset potential after spike
+    'vRest':     -52.0,    # mV  — resting potential for leak term
+    'vThreshold':-45.0,    # mV  — spike threshold
+    'tauMem':     20.0,    # ms  — membrane time constant
+    'tRefrac':     2.2,    # ms  — refractory period
+    'scalePoisson':250.0,  #     — Poisson weight scaling factor
+    'wScale':      0.275,  # mV  — synapse weight scale
+}
+
+DT = 0.1  # Simulation timestep in ms
+```
+
+These values are numerically identical to the PyTorch `MODEL_PARAMS` and match the Brian2 `default_params`.
+
+## Spike Recording Buffer
+
+For long or highly batched runs the on-device spike buffer is flushed periodically during simulation. The `_recording_window_steps()` function chooses the window size as:
+
+```python
+window = min(num_steps, requested_window, max_slots // n_run)
+# Aligned so num_steps % window == 0 (uses math.gcd)
+```
+
+After each window the runner calls `model.pull_recording_buffers_from_device()` and accumulates the spike data on the CPU. The time spent in `pull_recording_buffers_from_device()` is tracked as `result_collection` rather than `simulation_total`, so it does not inflate the GPU simulation timing.
+
+## CLI Usage
+
+Run 4 batched trials for 1 second:
+
+```bash
+python main.py --genn --t_run 1 --n_run 4
+```
+
+## CUDA Environment
+
+GeNN requires `CUDA_PATH` to be set before building its CUDA model. The runner calls `_configure_cuda_environment()` at import time, which:
+
+1. Reads `CUDA_PATH` or `CUDA_HOME` from the environment.
+2. If neither is set, falls back to `/usr/local/cuda-12.5` if that path exists.
+3. Exports `CUDA_PATH`, `CUDA_HOME`, and updates `PATH` and `LD_LIBRARY_PATH`.
+
+## Build Artifacts
+
+GeNN generates build artifacts (CUDA kernels, host code, compiled `.so`) in `code/output/genn/<exp_name>/`. The runner always rebuilds (`always_rebuild=True`) for each benchmark combination to ensure deterministic results. On repeated runs the directory is cleaned before the build step.
+
+<Note>
+GeNN 5.4.0 (PyGeNN) is installed into the `brain-fly` conda environment with:
+
+```bash
+pip install https://github.com/genn-team/genn/archive/refs/tags/5.4.0.zip
+```
+
+This is included in `environment.yml`. On Ubuntu/WSL, `pkg-config` and `libffi-dev` are also required for the source build.
+</Note>

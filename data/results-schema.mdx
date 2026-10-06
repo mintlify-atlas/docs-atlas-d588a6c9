@@ -1,0 +1,140 @@
+---
+title: "Spike Output Schema and Benchmark Results Format"
+sidebarTitle: "Results Schema"
+description: "Full schema reference for spike Parquet files, benchmark-results.csv, manifest.csv, and the ground-truth comparison JSON produced by Fly Brain."
+---
+
+Every backend writes spikes to a canonical Parquet schema so that downstream analysis scripts work identically regardless of which simulator produced the data. Benchmark timings accumulate in `data/benchmark-results.csv`, and labeled paper runs additionally write a `manifest.csv` that records schema metadata for each output file. Integrity is verified with a companion `checksums.sha256`.
+
+## Spike Parquet Schema
+
+Each spike file contains one row per spike event. The file is written outside the timed simulation section so that file I/O does not inflate `sim_time`.
+
+| Column | Type | Description |
+|---|---|---|
+| `time_ms` | float64 | Spike time in milliseconds — canonical column, consistent across all backends |
+| `t` | float64 | Legacy spike time column; kept for existing analysis scripts |
+| `trial` | int16 | Trial index (0-based); up to `n_run - 1` |
+| `neuron_index` | int | Integer row index of the neuron in the connectome (0-based, matches completeness CSV row order) |
+| `flywire_id` | int64 | FlyWire neuron ID (64-bit integer, matches the completeness CSV index) |
+| `exp_name` | str | Experiment name string, e.g. `pytorch_t1.0s_n1` |
+
+<Note>
+The legacy `t` column contains time in **milliseconds** for the PyTorch backend but in **seconds** for the Brian2-family backends. Always use `time_ms` for consistent millisecond values across all backends.
+</Note>
+
+## Spike File Naming Convention
+
+Spike files follow a predictable naming pattern based on the backend key, simulation duration, and number of trials:
+
+```
+<backend_key>_t<T>s_n<N>.parquet
+```
+
+Examples:
+
+| File | Backend | Duration | Trials |
+|---|---|---|---|
+| `pytorch_t1.0s_n1.parquet` | PyTorch | 1.0 s | 1 |
+| `pytorch_t1.0s_n4.parquet` | PyTorch | 1.0 s | 4 |
+| `brian2cpp_t10.0s_n1.parquet` | Brian2 CPU | 10.0 s | 1 |
+| `brian2cuda_t100.0s_n16.parquet` | Brian2CUDA | 100.0 s | 16 |
+| `nestgpu_t0.1s_n32.parquet` | NEST GPU | 0.1 s | 32 |
+| `genn_t10.0s_n8.parquet` | GeNN | 10.0 s | 8 |
+
+For labeled paper runs the files are partitioned into round subdirectories:
+
+```text
+data/results/nature_2026_07/
+├── manifest.csv
+├── checksums.sha256
+├── round_01/
+│   ├── pytorch_t1.0s_n1.parquet
+│   ├── brian2cpp_t1.0s_n1.parquet
+│   └── ...
+└── round_02/
+    └── ...
+```
+
+## benchmark-results.csv Schema
+
+`data/benchmark-results.csv` accumulates one row per completed benchmark run. Unlabeled one-off runs overwrite the row for the same `(framework, n_run, t_run)` triple; labeled paper rounds append new rows keyed by `(framework, n_run, t_run, experiment_key, run_label, round)` so that replicate measurements are preserved.
+
+| Column | Description |
+|---|---|
+| `framework` | Human-readable backend name, e.g. `PyTorch (CUDA)` or `Brian2 (CPU)` |
+| `n_run` | Number of independent trials run in this benchmark |
+| `t_run` | Simulation duration in seconds |
+| `setup_time` | Network or model creation time in seconds (weight loading + model instantiation) |
+| `build_time` | CUDA codegen / compile time in seconds; 0 for PyTorch eager mode |
+| `sim_time` | Simulation execution time in seconds; spike file I/O is excluded |
+| `total_time` | Total elapsed time in seconds including all phases |
+| `realtime_ratio` | `(n_run × t_run) / sim_time` — how many times faster than real time |
+| `spikes` | Total spike count across all trials |
+| `active_neurons` | Number of unique FlyWire IDs that spiked at least once |
+| `status` | `'success'` or a short error message string |
+| `timestamp` | ISO 8601 datetime string when the row was written |
+| `backend_key` | Internal key: `cpu` / `gpu` / `pytorch` / `nestgpu` / `genn` / `brian2genn` |
+| `experiment` | Human-readable experiment name, e.g. `Sugar GRNs (200 Hz)` |
+| `experiment_key` | Machine key: `sugar` or `p9` |
+| `run_label` | Paper run label string (e.g. `nature_2026_07`) or empty for ad-hoc runs |
+| `round` | Round number for multi-round paper suites, or empty |
+| `spike_path` | Repo-relative path to the spike parquet file, or empty if spike I/O was disabled |
+
+## manifest.csv Schema
+
+Each labeled paper run produces a `manifest.csv` alongside the spike parquet files. It carries a subset of the `benchmark-results.csv` columns plus three schema-version fields that let downstream scripts validate and interpret the spike files without inspecting the parquets directly.
+
+Schema-version columns added by the manifest (not present in `benchmark-results.csv`):
+
+| Column | Value | Description |
+|---|---|---|
+| `spike_schema_version` | `'1'` | Always `'1'` for the current schema |
+| `spike_time_column` | `'time_ms'` | Canonical spike-time column name |
+| `spike_time_unit` | `'ms'` | Unit of the canonical spike-time column |
+
+The manifest inherits these columns from `benchmark-results.csv`: `run_label`, `round`, `framework`, `backend_key`, `experiment`, `experiment_key`, `n_run`, `t_run`, `spike_path`, `spikes`, `active_neurons`, `status`, and `timestamp`.
+
+Verify the full spike bundle against the companion SHA-256 file:
+
+```bash
+cd data/results/nature_2026_07
+sha256sum -c checksums.sha256
+```
+
+## Loading Spike Data
+
+```python
+import pandas as pd
+
+# Load a spike parquet
+df = pd.read_parquet('data/results/nature_2026_07/round_01/pytorch_t1.0s_n1.parquet')
+print(df.columns.tolist())  # ['t', 'time_ms', 'trial', 'neuron_index', 'flywire_id', 'exp_name']
+print(f"Total spikes: {len(df)}")
+print(f"Active neurons: {df['flywire_id'].nunique()}")
+
+# Per-neuron firing rates
+t_run = 1.0  # seconds
+n_run = 1
+rates = df.groupby('flywire_id').size() / (t_run * n_run)
+print(rates.sort_values(ascending=False).head(10))
+```
+
+To load and merge all rounds for a single backend and parameter point:
+
+```python
+import pathlib
+
+rounds = sorted(pathlib.Path('data/results/nature_2026_07').glob('round_*/pytorch_t1.0s_n1.parquet'))
+df_all = pd.concat([pd.read_parquet(p).assign(round=p.parent.name) for p in rounds])
+print(f"Rounds loaded: {df_all['round'].nunique()}")
+print(f"Mean spikes per round: {len(df_all) / df_all['round'].nunique():.0f}")
+```
+
+To load the benchmark timing CSV and filter by backend:
+
+```python
+timings = pd.read_csv('data/benchmark-results.csv')
+pytorch_rows = timings[timings['backend_key'] == 'pytorch']
+print(pytorch_rows[['t_run', 'n_run', 'sim_time', 'realtime_ratio', 'active_neurons']])
+```

@@ -1,0 +1,77 @@
+---
+title: "NEST GPU Backend: Custom CUDA LIF Kernel"
+sidebarTitle: "NEST GPU"
+description: "NEST GPU runs the Drosophila LIF model with a custom user_m1 CUDA kernel, executing each trial in a separate subprocess since NEST GPU cannot reset state in-process."
+---
+
+NEST GPU implements the Drosophila LIF model using a custom neuron model called `user_m1`, which encodes the LIF dynamics and alpha-function synapse as a hand-written CUDA kernel compiled directly into the NEST GPU library. Unlike Brian2 or PyTorch, NEST GPU has no built-in mechanism to reset its global simulation state between runs within a single process, so the benchmark runner spawns a fresh subprocess for every trial.
+
+## Architecture
+
+**Custom `user_m1` neuron model**
+
+The `user_m1` model is defined in `scripts/nestgpu_source_files/src/user_m1.cu` and compiled into the NEST GPU shared library at build time. It stores per-neuron state as named variables (`v_m`, `g_m`, `v_0`, `v_rst`, `v_th`, `tau_mbr`, `tau_g`, `t_ref`) that map directly to the LIF+alpha equations from the Brian2 ground truth.
+
+**Subprocess per trial**
+
+NEST GPU cannot reset its global simulation state within a live Python process. The orchestrator function `_run_all_trials()` therefore spawns one subprocess per trial via `subprocess.run()`, passing `--worker` to invoke the `_run_worker_trial()` entry point. Each subprocess builds the full network from scratch, simulates, serialises the timing and spike data as JSON/Parquet, and exits.
+
+**Array-based `Connect()`**
+
+Synaptic connections are wired using NEST GPU's `Connect()` with a `one_to_one` rule and a C-contiguous `ctypes` float array of pre-computed weights. The delay and receptor type are set once via `syn_spec`.
+
+**Spike recording via `GetRecSpikeTimes()`**
+
+Spike recording is activated per-neuron with `ActivateRecSpikeTimes(neu, N_MAX_SPIKE_TIMES_PER_CHUNK)` before simulation begins. After each recording chunk the runner calls `GetRecSpikeTimes(neu)` to drain the device-side buffer.
+
+## Spike Recording
+
+NEST GPU's per-neuron spike buffer has a fixed maximum length (`N_MAX_SPIKE_TIMES_PER_CHUNK = 4000` events). To prevent high-rate input neurons from overflowing this buffer during long simulations, the runner divides the total simulation time into chunks of at most `SPIKE_RECORDING_CHUNK_MS = 10_000 ms` (10 seconds):
+
+```python
+SPIKE_RECORDING_CHUNK_MS = 10_000.0     # ms per recording window
+N_MAX_SPIKE_TIMES_PER_CHUNK = 4000      # max events per neuron per chunk
+```
+
+After each chunk, `GetRecSpikeTimes()` drains the buffer and the absolute spike times are accumulated. This chunked approach supports arbitrarily long simulations without losing spikes.
+
+## Model Parameters
+
+```python
+MODEL_PARAMS = {
+    'v_0':   -52,    # mV  — resting / initial membrane potential
+    'v_rst': -52,    # mV  — reset potential after spike
+    'v_th':  -45,    # mV  — spike threshold
+    't_mbr':  20,    # ms  — membrane time constant
+    'tau':     5,    # ms  — synaptic (alpha) time constant
+    't_rfc':   2.2,  # ms  — refractory period
+    't_dly':   1.8,  # ms  — synaptic delay
+    'w_syn':   0.275,# mV  — weight per synapse
+    'f_poi': 250,    #     — Poisson weight scaling factor
+}
+```
+
+Note that NEST GPU uses raw numeric values rather than Brian2 unit objects.
+
+## CLI Usage
+
+Run a single 1-second trial:
+
+```bash
+python main.py --nestgpu --t_run 1 --n_run 1
+```
+
+## Environment Discovery
+
+Because NEST GPU is compiled from source and may be installed in various locations, the runner calls `_configure_nestgpu_environment()` before importing `nestgpu`. It checks the following candidates in order:
+
+1. `NESTGPU_PYTHONLIB` environment variable (highest priority)
+2. A sibling `.nest-gpu/pythonlib/` directory next to the repository root
+3. `scripts/nestgpu_source_files/pythonlib/` inside the repository
+4. All `python*/site-packages/` directories under `/usr/local/lib/`
+
+The first path where `nestgpu.py` is found is prepended to `sys.path` and `PYTHONPATH`. A similar search for `libnestgpukernel.so` populates `NESTGPU_LIB` if it is not already set.
+
+<Warning>
+NEST GPU must be compiled from source with the custom `user_m1` neuron model files before the `--nestgpu` backend can be used. Copy `scripts/nestgpu_source_files/src/user_m1.{h,cu}` and `scripts/nestgpu_source_files/pythonlib/nestgpu.py` into your NEST GPU source tree, then rebuild. See the [NEST GPU installation guide](/installation/nest-gpu) for step-by-step instructions.
+</Warning>

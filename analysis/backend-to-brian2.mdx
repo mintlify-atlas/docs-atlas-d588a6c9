@@ -1,0 +1,116 @@
+---
+title: "Compare One Backend Against Brian2 Across All Rounds"
+sidebarTitle: "Backend vs Brian2"
+description: "Use compare_backend_to_brian2.py to generate publication-ready parity files comparing a single backend against Brian2 CPU across all five labeled benchmark rounds."
+---
+
+`compare_backend_to_brian2.py` is designed for paper-support comparisons. It fixes Brian2 CPU as the reference and sweeps one chosen backend across all five rounds of a labeled run, producing round-annotated summary statistics and per-neuron rate-parity rows in a consistent column schema. The outputs match the `<backend>_vs_brian2_*` file shape expected by the project's publication figure pipeline.
+
+## When to Use This
+
+Use this script when preparing publication figures or supplementary tables that compare a specific GPU backend against the canonical Brian2 CPU reference across all benchmark rounds. The multi-round design averages out run-to-run stochasticity and produces the round-level variance information needed for error bars.
+
+For exploratory work — checking all framework pairs at once or validating a single new backend immediately after a run — use `compare_spike_outputs.py` instead. It is more flexible but does not produce the round-annotated, Brian2-anchored schema this script targets.
+
+## CLI Usage
+
+```bash
+python code/compare_backend_to_brian2.py \
+  --run-label nature_2026_07 \
+  --backend brian2genn \
+  --output-dir data/results/nature_2026_07/comparisons
+```
+
+To also compute greedy spike-time matches (for small, targeted checks only):
+
+```bash
+python code/compare_backend_to_brian2.py \
+  --run-label nature_2026_07 \
+  --backend genn \
+  --output-dir data/results/nature_2026_07/comparisons \
+  --include-timing
+```
+
+## CLI Flags
+
+<ParamField path="--run-label" type="string" required>
+  Labeled paper run to compare. Parquet files are read from
+  `data/results/<label>/round_<N>/` for each round in `--rounds`.
+</ParamField>
+
+<ParamField path="--backend" type="string" required>
+  Backend key to compare against Brian2 CPU. Must be one of:
+  `brian2cuda`, `pytorch`, `nestgpu`, `genn`, `brian2genn`.
+  Passing `brian2cpp` raises an error because it is the reference backend.
+</ParamField>
+
+<ParamField path="--output-dir" type="string">
+  Directory to write output files. Defaults to
+  `data/results/<run-label>/comparisons` if not specified.
+</ParamField>
+
+<ParamField path="--rounds" type="int[]" default="[1, 2, 3, 4, 5]">
+  Round numbers to iterate over. Defaults to all five rounds of a standard
+  labeled paper run.
+</ParamField>
+
+<ParamField path="--t_run" type="float[]" default="[0.1, 1.0, 10.0, 100.0]">
+  Simulation durations in seconds to include. Defaults to the full paper grid.
+</ParamField>
+
+<ParamField path="--n_run" type="int[]" default="[1, 4, 8, 16, 32]">
+  Trial counts to include. Defaults to the full paper grid.
+</ParamField>
+
+<ParamField path="--tolerance-ms" type="float" default="1.0">
+  Spike-time matching tolerance in milliseconds. Only used when
+  `--include-timing` is also passed.
+</ParamField>
+
+<ParamField path="--include-timing" type="boolean">
+  Also run greedy spike-time matching per `(trial, neuron)` group.
+  Disabled by default. See the section below before enabling.
+</ParamField>
+
+## Output Files
+
+All output file names are prefixed with the chosen backend key followed by `_vs_brian2`.
+
+<ResponseField name="<backend>_vs_brian2_rate_summary.csv / .json" type="CSV / JSON">
+  One row per round, `t_run`, and `n_run` combination. Contains active-neuron
+  overlap metrics (Jaccard, precision, recall), per-neuron firing-rate
+  statistics (Pearson correlation, RMSE, MAE in Hz), spike-count ratio, and
+  round/run-label annotations. The JSON variant contains the same data as an
+  array of objects.
+</ResponseField>
+
+<ResponseField name="<backend>_vs_brian2_rate_parity.csv" type="CSV">
+  Per-neuron firing-rate parity across all rounds and grid points. Each row
+  records `run_label`, `round`, `t_run`, `n_run`, `flywire_id`,
+  `reference_rate_hz` (Brian2 CPU), and `comparison_rate_hz` (chosen backend).
+  This is the primary input for per-neuron scatter plots and residual histograms
+  in publication figures.
+</ResponseField>
+
+<ResponseField name="<backend>_vs_brian2_missing_inputs.json" type="JSON">
+  List of rounds, grid points, and parquet paths that were not found. Each
+  entry includes the backend key, framework name, round number, `t_run`,
+  `n_run`, and the expected file path. Inspect this file if summary row counts
+  are lower than expected.
+</ResponseField>
+
+## About --include-timing
+
+Without `--include-timing` the script loads only the `flywire_id` column from each parquet to compute per-neuron rates, which is fast even for large `t_run` values. When `--include-timing` is passed, the full spike-time columns are loaded and greedy one-to-one spike matching is performed per `(trial, neuron)` group.
+
+Greedy spike-time matching is **O(n log n) per trial per neuron** due to pre-sorting. For the full paper grid — 100 s simulations with 32 trials and ~138 k neurons — this can take tens of minutes per round and requires loading several gigabytes of parquet data into memory. It also fills in the `timing_matches`, `timing_f1`, `timing_precision`, `timing_recall`, `timing_mean_abs_dt_ms`, and `timing_median_abs_dt_ms` columns in the summary CSV that are otherwise `null`.
+
+Reserve `--include-timing` for short, targeted validations such as a single `t_run=1.0 --n_run 1` point, not the full publication grid.
+
+<Warning>
+  Both Brian2 CPU and the target backend must have spike parquet files present in
+  the labeled run directory for every requested round, `t_run`, and `n_run`
+  combination before running this script. Any missing parquets are logged to
+  `<backend>_vs_brian2_missing_inputs.json` and silently skipped. Run `main.py`
+  first to ensure all required parquets exist.
+</Warning>

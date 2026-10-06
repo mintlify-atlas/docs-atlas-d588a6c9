@@ -1,0 +1,60 @@
+---
+title: "Brian2CUDA: CUDA Standalone GPU Backend"
+sidebarTitle: "Brian2CUDA"
+description: "Brian2CUDA uses Brian2's CUDA standalone device to compile and run the Drosophila LIF model on GPU, with a one-time build step and sequential trial execution."
+---
+
+Brian2CUDA targets the CUDA standalone device, generating and compiling CUDA C++ code once from the Brian2 network description and then running N trials sequentially against the compiled binary. This separates the one-time compilation cost from the per-trial GPU execution cost, making it straightforward to amortise build overhead across many trials.
+
+## Architecture
+
+The Brian2CUDA path reuses the same `run_brian2_cuda.py` runner as the CPU backend. The key difference is a single line at network creation time:
+
+```python
+set_device('cuda_standalone', build_on_run=False)
+```
+
+This switches Brian2 into CUDA standalone mode. The rest of the network — `NeuronGroup` with LIF equations, `Synapses` with alpha-function synapses, `PoissonInput` for neural activation, and `SpikeMonitor` for spike recording — is identical to the CPU path.
+
+**One-time CUDA codegen and compilation**
+
+After the network is fully constructed, the runner calls `device.build()` to generate and compile the CUDA C++ code. This step includes Brian2's code generation, NVCC compilation, and linking. The total time is captured in `build_time`.
+
+**Sequential trial execution**
+
+After the build step, each trial is executed by calling `device.run()` once per trial. Trials share the same compiled binary but are independent runs — state is reset between trials at the OS/process level. This is in contrast to PyTorch and GeNN, which batch all trials into a single GPU kernel invocation.
+
+**Brian2 version**
+
+Brian2CUDA requires Brian2 2.8.0 and brian2cuda==1.0a7, which are installed in the `brain-fly` conda environment. This version is intentionally incompatible with Brian2GeNN, which pins Brian2 versions below 2.6.
+
+## Build vs Simulation Time
+
+The split between build and simulation time is the most important characteristic of this backend:
+
+- **`build_time`** — captures the full CUDA codegen and NVCC compilation overhead. On a typical development machine this is **30–120 seconds** and is paid only once per benchmark configuration (not per trial).
+- **`sim_time`** — captures only the actual GPU execution time summed across all `n_run` trials. This is the cost you pay on every deployment, and it is the most meaningful number for comparing GPU backends.
+
+For repeated benchmarks, the built binary is stored in `code/output/` and can be rerun without rebuilding.
+
+## CLI Usage
+
+Run a single 1-second trial on the GPU:
+
+```bash
+python main.py --brian2cuda-gpu --t_run 1 --n_run 1
+```
+
+## Environment
+
+Brian2CUDA must be run from the `brain-fly` conda environment:
+
+```bash
+conda activate brain-fly
+```
+
+The `brian2cuda==1.0a7` package is installed into this environment via pip as part of `environment.yml`. CUDA 12.x must be available on the host system; the runner relies on Brian2CUDA's automatic CUDA detection.
+
+<Warning>
+Brian2CUDA requires `import brian2cuda` to be executed **before** `set_device('cuda_standalone')` is called — importing the package registers the CUDA device with Brian2. This is handled automatically by `main.py` when the `--brian2cuda-gpu` flag is used.
+</Warning>

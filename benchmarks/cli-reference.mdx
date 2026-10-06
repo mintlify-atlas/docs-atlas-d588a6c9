@@ -1,0 +1,153 @@
+---
+title: "main.py CLI Reference: All Flags and Options"
+sidebarTitle: "CLI Reference"
+description: "Complete reference for all main.py command-line flags including backend selectors, duration/trial parameters, paper suite options, and logging controls."
+---
+
+`main.py` is the single entrypoint for every Fly Brain benchmark. It parses command-line arguments, configures the logger, validates parameter values, and dispatches to the framework-specific runners in `code/` — `run_brian2_cuda.py`, `run_pytorch.py`, `run_nestgpu.py`, `run_genn.py`, and `run_brian2_genn.py`. Results are written incrementally to `data/benchmark-results.csv` as each backend completes, so a long run is never lost if interrupted.
+
+## Usage
+
+```bash
+python main.py [BACKEND FLAGS] [OPTIONS]
+```
+
+When called with no arguments, `main.py` runs all five main-environment backends (Brian2 CPU, Brian2CUDA, PyTorch, NEST GPU, GeNN) across the full default parameter grid.
+
+## Backend Flags
+
+<Note>
+Backend flags are fully combinable — for example, `--brian2-cpu --pytorch` runs Brian2 CPU followed by PyTorch in the same invocation. When no backend flag is provided, all five main-environment backends run in sequence. Brian2GeNN must be invoked separately because it requires the `brain-fly-brian2genn` environment.
+</Note>
+
+<ParamField path="--brian2-cpu" type="flag">
+Run the **Brian2 C++ standalone** backend (CPU). Brian2 is the canonical ground-truth implementation: it reproduces the LIF model from Shiu et al. (Nature 2024) with 91% prediction accuracy against experimental *Drosophila* data. Compilation is required on first run; subsequent runs reuse the cached binary.
+</ParamField>
+
+<ParamField path="--brian2cuda-gpu" type="flag">
+Run the **Brian2CUDA** backend (GPU). Brian2CUDA generates CUDA standalone code and compiles it for GPU execution. Requires `brian2cuda` registered as a Brian2 device (automatically imported when this flag is passed). Incompatible with Brian2GeNN due to conflicting Brian2 version requirements.
+</ParamField>
+
+<ParamField path="--pytorch" type="flag">
+Run the **PyTorch** backend (GPU/CPU). Uses a custom `nn.Module`-based LIF implementation with batched trial parallelism — all `n_run` trials execute in a single forward pass. No build step; runs in PyTorch eager mode.
+</ParamField>
+
+<ParamField path="--nestgpu" type="flag">
+Run the **NEST GPU** backend. Uses a custom `user_m1` CUDA neuron model. NEST GPU must be compiled from source and installed separately before this flag can be used — see the installation docs.
+</ParamField>
+
+<ParamField path="--genn" type="flag">
+Run the **GeNN** backend via PyGeNN 5.4.0 with the CUDA backend. Supports GeNN native batching for `n_run`. Large batched runs cap the on-device spike recording buffer with `GENN_RECORDING_WINDOW_MAX_SLOTS` (default: `800000`) to prevent CUDA out-of-memory errors.
+</ParamField>
+
+<ParamField path="--brian2genn" type="flag">
+Run the **Brian2GeNN** backend (Brian2GeNN 1.7.0, GeNN CUDA). Must be run from the `brain-fly-brian2genn` conda environment. Because Brian2GeNN pins Brian2 < 2.6, it cannot share an environment with Brian2CUDA (which requires Brian2 2.8.0). Independent trials are implemented as separate build/run iterations with deterministic per-trial C RNG seeds.
+</ParamField>
+
+<ParamField path="(default — no backend flag)" type="implicit">
+When no backend flag is provided, runs all five main-environment backends in order: **Brian2 CPU → Brian2CUDA → PyTorch → NEST GPU → GeNN**. Brian2GeNN is never included in the default set because it requires a separate environment.
+</ParamField>
+
+## Simulation Parameters
+
+<ParamField path="--t_run" type="float [float ...]">
+Simulation duration(s) in seconds. Accepts one or more space-separated values. Allowed values: `0.1`, `1`, `10`, `100`, `1000`. If omitted, all five values are used.
+
+```bash
+python main.py --t_run 1
+python main.py --t_run 0.1 1 10
+```
+</ParamField>
+
+<ParamField path="--n_run" type="int [int ...]">
+Number of independent trials per benchmark point. Accepts one or more space-separated values. Default: `1 4 8 16 32`.
+
+```bash
+python main.py --n_run 1
+python main.py --n_run 1 4 8 16 32
+```
+</ParamField>
+
+<ParamField path="--experiment" type="string" default="sugar">
+Which stimulation experiment to run. Choices: `sugar`, `p9`.
+
+- `sugar` — 21 Sugar GRN neurons driven at 200 Hz (default)
+- `p9` — 2 P9 forward-walking descending neurons driven at 100 Hz
+
+```bash
+python main.py --experiment sugar
+python main.py --experiment p9
+```
+</ParamField>
+
+## Paper Suite Parameters
+
+<ParamField path="--paper" type="flag">
+Run the Nature paper benchmark suite. Sets `t_run = [0.1, 1.0, 10.0, 100.0]`, `n_run = [1, 4, 8, 16, 32]`, and `rounds = 5` (unless `--rounds` overrides the round count). Explicit `--t_run` or `--n_run` values take precedence if provided alongside `--paper`.
+</ParamField>
+
+<ParamField path="--rounds" type="int" default="1 (5 with --paper)">
+Repeat the full selected backend/parameter suite N times. Each repetition is written as a separate round. For labeled multi-round runs, round outputs are partitioned under `data/results/<label>/round_XX/`. Default is 1 for normal runs, 5 when `--paper` is set.
+</ParamField>
+
+<ParamField path="--round-start" type="int" default="1">
+First round number to write. Use this to resume an interrupted labeled run without overwriting completed rounds. For example, if rounds 1 and 2 already completed, pass `--round-start 3` to continue from round 3.
+</ParamField>
+
+<ParamField path="--run-label" type="string">
+A human-readable label used to group spike parquet outputs under `data/results/<label>/`. Also used as the key in `benchmark-results.csv` so that labeled paper-round rows are appended rather than overwriting each other. Label characters are sanitized to alphanumerics, hyphens, and underscores.
+</ParamField>
+
+## Output Control
+
+<ParamField path="--log_file" type="string" default="data/results/benchmarks.log">
+Path to the log file. All timestamped log messages are written to both the console and this file. Parent directories are created automatically.
+</ParamField>
+
+<ParamField path="--no_log_file" type="flag">
+Disable file logging. All output goes to the console only. Useful during development when you do not want to accumulate log files.
+</ParamField>
+
+<ParamField path="--disable-spike-io" type="flag">
+Disable spike probing and parquet output entirely. No `.parquet` files are written, and no `spike_path` is recorded in the CSV. Use this for timing-only benchmarks where you want to measure the pure simulation cost without any file I/O overhead. The `FLY_BRAIN_DISABLE_SPIKE_IO` environment variable can also be set to `1` to achieve the same effect.
+</ParamField>
+
+## Examples
+
+```bash
+# All backends, default parameter grid
+python main.py
+
+# Single backend, single point
+python main.py --nestgpu --t_run 1 --n_run 1
+
+# Multiple backends, custom parameter grid
+python main.py --brian2-cpu --pytorch --t_run 0.1 1 --n_run 1 4 8 16 32
+
+# P9 experiment, PyTorch only
+python main.py --pytorch --experiment p9 --t_run 1 --n_run 1
+
+# Paper suite (five main-env backends, five rounds)
+python main.py --paper --run-label nature_2026_07
+
+# Resume a labeled run from round 3
+python main.py --paper --run-label nature_2026_07 --round-start 3
+
+# Add Brian2GeNN as the 6th backend (from brain-fly-brian2genn environment)
+python main.py --brian2genn --paper --run-label nature_2026_07
+
+# Timing-only run — no spike parquet output
+python main.py --t_run 1 --n_run 1 --disable-spike-io
+
+# Console output only, no log file
+python main.py --t_run 1 --n_run 1 --no_log_file
+```
+
+<Warning>
+The `--brian2genn` flag must be run from the `brain-fly-brian2genn` conda environment, not `brain-fly`. Brian2GeNN 1.7.0 pins Brian2 < 2.6, which is incompatible with Brian2CUDA's Brian2 2.8.0 requirement. Mixing them in the same environment will cause import errors.
+
+```bash
+conda activate brain-fly-brian2genn
+python main.py --brian2genn --paper --run-label nature_2026_07
+```
+</Warning>

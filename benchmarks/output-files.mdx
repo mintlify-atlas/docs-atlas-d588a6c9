@@ -1,0 +1,107 @@
+---
+title: "Benchmark Output Files: CSV, Parquet, and Manifest"
+sidebarTitle: "Output Files"
+description: "Understand the benchmark-results.csv timing log, spike parquet files, manifest.csv, and checksums.sha256 produced by every Fly Brain benchmark run."
+---
+
+Every Fly Brain benchmark run produces at least one output file: the cumulative timing log at `data/benchmark-results.csv`. When spike I/O is enabled (the default), each backend also writes a per-spike parquet file under `data/results/`. Labeled paper suite runs additionally produce a `manifest.csv` index and a `checksums.sha256` integrity file for the full spike bundle. All paths are relative to the repository root.
+
+## benchmark-results.csv
+
+`data/benchmark-results.csv` is the primary output of every benchmark run. Rows are written incrementally — one row per backend per `(t_run, n_run)` combination — so the file is always up to date even if the run is interrupted. Unlabeled one-off runs overwrite previous rows with the same `(framework, n_run, t_run)` key; labeled paper-round runs append new rows keyed by `(framework, n_run, t_run, experiment_key, run_label, round)`.
+
+| Column | Type | Description |
+|---|---|---|
+| `framework` | string | Human-readable backend name, e.g. `Brian2 (CPU)`, `PyTorch`, `GeNN (GPU)` |
+| `n_run` | int | Number of independent trials in this benchmark point |
+| `t_run` | float | Simulation duration in seconds |
+| `setup_time` | float | Network/model creation time in seconds (loading data, building objects) |
+| `build_time` | float | CUDA codegen and compile time in seconds; `0` for backends with no build step (PyTorch) |
+| `sim_time` | float | Simulation execution time in seconds — spike parquet I/O is **excluded** |
+| `total_time` | float | Total elapsed wall-clock time in seconds (setup + build + sim) |
+| `realtime_ratio` | float | `(n_run × t_run) / sim_time` — how many times faster than biological real-time |
+| `spikes` | int | Total spike count summed across all `n_run` trials |
+| `active_neurons` | int | Number of unique neurons that fired at least one spike |
+| `status` | string | `success` or an error message if the backend raised an exception |
+| `timestamp` | string | ISO-format datetime when the row was written |
+| `backend_key` | string | Internal key: `cpu`, `gpu`, `pytorch`, `nestgpu`, `genn`, or `brian2genn` |
+| `experiment` | string | Human-readable experiment name, e.g. `Sugar GRNs (200 Hz)` |
+| `experiment_key` | string | Machine key: `sugar` or `p9` |
+| `run_label` | string | Paper run label (e.g. `nature_2026_07`), or empty for unlabeled runs |
+| `round` | int | Round number within a labeled multi-round run, or empty for single runs |
+| `spike_path` | string | Repo-relative path to the spike parquet file, or empty when `--disable-spike-io` is set |
+
+## Spike Parquet Files
+
+Spike parquet files are written outside the timed simulation section so that file I/O never contaminates `sim_time`. GeNN additionally tracks the time of flushing bounded on-device spike-recording windows as result collection overhead, separately from simulation time.
+
+Each parquet file has one row per spike event. The canonical schema is:
+
+| Column | Type | Description |
+|---|---|---|
+| `time_ms` | float | Spike time in milliseconds — canonical timing column for all new exports |
+| `t` | float | Legacy spike time column retained for compatibility with existing analysis scripts |
+| `trial` | int | Trial index (0-based) within the `n_run` batch |
+| `neuron_index` | int | Integer neuron index within the LIF model |
+| `flywire_id` | int | FlyWire connectome neuron ID (v783 public release) |
+| `exp_name` | string | Experiment name string (e.g. `sugar`, `p9`) |
+
+Spike parquet output can be disabled entirely with `--disable-spike-io`. When disabled, no `.parquet` files are written, `spike_path` is empty in the CSV, and no manifest entry is created. The `sim_time` value is unaffected either way.
+
+## manifest.csv
+
+For labeled paper runs, a `manifest.csv` is written to `data/results/<run_label>/`. It provides a structured, per-file index of every spike parquet produced in the bundle and is the primary metadata reference for downstream analysis scripts.
+
+| Column | Description |
+|---|---|
+| `run_label` | The paper run label passed via `--run-label` |
+| `round` | Round number (1-based) |
+| `framework` | Human-readable backend name |
+| `backend_key` | Internal key (`cpu`, `gpu`, `pytorch`, `nestgpu`, `genn`, `brian2genn`) |
+| `experiment` | Human-readable experiment name |
+| `experiment_key` | Machine key (`sugar` or `p9`) |
+| `n_run` | Number of trials |
+| `t_run` | Simulation duration in seconds |
+| `spike_path` | Repo-relative path to the spike parquet file |
+| `spikes` | Total spike count in the file |
+| `active_neurons` | Number of unique neurons that spiked |
+| `status` | `success` or error message |
+| `timestamp` | ISO datetime when the row was written |
+| `spike_schema_version` | Schema version identifier (currently `1`) |
+| `spike_time_column` | Name of the canonical timing column (`time_ms`) |
+| `spike_time_unit` | Unit of the timing column (`ms`) |
+
+## File Locations
+
+The full output layout for a labeled paper run is:
+
+```text
+data/
+├── benchmark-results.csv          # Cumulative timing log (all runs, all backends)
+└── results/
+    └── <run_label>/
+        ├── manifest.csv           # Spike file index for this labeled run
+        ├── checksums.sha256       # SHA-256 integrity hashes for all parquet files
+        └── round_XX/
+            └── <backend>_t<T>s_n<N>.parquet
+```
+
+For unlabeled one-off runs, parquet files are written directly to `data/results/` without round subdirectories. `manifest.csv` and `checksums.sha256` are only written for labeled runs.
+
+<Tip>
+Use pandas to load and explore `benchmark-results.csv` directly. The `realtime_ratio` column is the most useful single metric for comparing backends:
+
+```python
+import pandas as pd
+
+df = pd.read_csv('data/benchmark-results.csv')
+print(df[['framework', 't_run', 'n_run', 'sim_time', 'realtime_ratio']].to_string())
+```
+
+To compare a specific backend across all parameter combinations:
+
+```python
+pytorch = df[df['backend_key'] == 'pytorch'].sort_values(['t_run', 'n_run'])
+print(pytorch[['t_run', 'n_run', 'sim_time', 'realtime_ratio', 'spikes']].to_string())
+```
+</Tip>

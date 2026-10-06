@@ -1,0 +1,74 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "Fly Brain",
+  "projectDescription": "A whole-brain leaky integrate-and-fire simulation of the adult Drosophila brain using the FlyWire connectome (~138k neurons, ~5M synapses), benchmarked across six computational frameworks including Brian2, Brian2CUDA, PyTorch, NEST GPU, GeNN, and Brian2GeNN.",
+  "theme": "aspen",
+  "primaryColor": "#2196f3",
+  "lightColor": "#4685dc",
+  "darkColor": "#94bcec",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["introduction", "concepts"]
+          },
+          {
+            "group": "Getting Started",
+            "pages": ["installation/main-environment", "installation/brian2genn", "installation/nest-gpu", "installation/wsl-setup"]
+          },
+          {
+            "group": "Running Benchmarks",
+            "pages": ["benchmarks/quickstart", "benchmarks/cli-reference", "benchmarks/paper-suite", "benchmarks/output-files"]
+          },
+          {
+            "group": "Accuracy & Analysis",
+            "pages": ["analysis/ground-truth", "analysis/pairwise-comparison", "analysis/backend-to-brian2"]
+          },
+          {
+            "group": "Framework Reference",
+            "pages": ["frameworks/brian2-cpu", "frameworks/brian2cuda", "frameworks/pytorch", "frameworks/nest-gpu", "frameworks/genn", "frameworks/brian2genn"]
+          },
+          {
+            "group": "Data & Connectome",
+            "pages": ["data/connectome", "data/experiments", "data/results-schema"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Whole-brain Drosophila LIF simulation from the FlyWire connectome (~138k neurons, ~5M synapses)",
+    "Six interchangeable backends: Brian2 (CPU), Brian2CUDA, PyTorch, NEST GPU, GeNN, and Brian2GeNN",
+    "Batched trial parallelism for GPU backends (PyTorch batches n_run trials simultaneously)",
+    "Reproducible paper benchmark suite with labeled rounds and spike parquet outputs",
+    "Accuracy validation against Brian2 CPU ground truth via Jaccard overlap, firing-rate correlation, and spike-count ratios",
+    "Pairwise cross-framework spike comparison (pairwise_summary.csv, parity_rates.csv)",
+    "Spike timing exports in Parquet format with canonical schema (time_ms, trial, neuron_index, flywire_id)",
+    "Incremental CSV result logging with setup/build/simulation timing columns",
+    "Configurable experiments: Sugar GRNs (200 Hz) and P9 forward-walking (100 Hz)",
+    "WSL2 + CUDA setup automation via setup_WSL_CUDA.sh"
+  ],
+  "publicApiSurface": [
+    "main.py CLI: --brian2-cpu, --brian2cuda-gpu, --pytorch, --nestgpu, --genn, --brian2genn",
+    "main.py CLI: --t_run, --n_run, --rounds, --round-start, --run-label, --paper",
+    "main.py CLI: --experiment {sugar,p9}, --disable-spike-io, --no_log_file",
+    "benchmark.run_benchmarks(backends, t_run_values, n_run_values, experiment, logger, rounds, run_label, round_start)",
+    "benchmark.get_experiment(name) → experiment config dict",
+    "benchmark.save_result_csv(backend_name, result)",
+    "benchmark.BenchmarkLogger(log_file)",
+    "benchmark.T_RUN_VALUES_SEC, PAPER_T_RUN_VALUES_SEC, N_RUN_VALUES, PAPER_ROUNDS",
+    "benchmark.EXPERIMENTS: {sugar, p9}",
+    "benchmark.BACKEND_NAMES: {cpu, gpu, pytorch, nestgpu, genn, brian2genn}",
+    "run_pytorch.run_all_benchmarks(t_run_values, n_run_values, experiment, logger, run_label, round_idx)",
+    "run_brian2_cuda.run_all_benchmarks(use_cuda, t_run_values, n_run_values, experiment, logger, run_label, round_idx)",
+    "run_nestgpu.run_all_benchmarks(t_run_values, n_run_values, experiment, logger, run_label, round_idx)",
+    "run_genn.run_all_benchmarks(t_run_values, n_run_values, experiment, logger, run_label, round_idx)",
+    "compare_ground_truth.py CLI: --t_run, --n_run, --run-label, --round",
+    "compare_spike_outputs.py CLI: --run-label, --round, --output-dir",
+    "compare_backend_to_brian2.py CLI: --run-label, --backend, --output-dir, --include-timing",
+    "Spike parquet schema: time_ms, trial, neuron_index, flywire_id, exp_name"
+  ]
+}

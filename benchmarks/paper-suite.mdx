@@ -1,0 +1,112 @@
+---
+title: "Run the Nature Paper Benchmark Suite"
+sidebarTitle: "Paper Suite"
+description: "Reproduce the full Nature 2024 benchmark grid with five rounds, four durations, and five trial counts across all six Fly Brain backends."
+---
+
+The Fly Brain paper suite is a structured benchmark grid designed to reproduce the performance results published in [Shiu et al., *Nature* 2024](https://www.nature.com/articles/s41586-024-07763-9). It runs four simulation durations, five trial counts, and five rounds of repetition across all six computational backends, producing 600 spike parquet files and a corresponding timing log. The `--paper` flag configures the parameter grid automatically; `--run-label` groups every output under a single versioned folder.
+
+## Parameter Grid
+
+The paper suite uses the following fixed parameter values, defined in `code/benchmark.py`:
+
+| Parameter | Values |
+|---|---|
+| `PAPER_T_RUN_VALUES_SEC` | `[0.1, 1.0, 10.0, 100.0]` seconds |
+| `N_RUN_VALUES` | `[1, 4, 8, 16, 32]` trials |
+| `PAPER_ROUNDS` | `5` rounds |
+
+The full grid is **4 durations × 5 trial counts = 20 parameter combinations** per framework per round. Across five rounds and six frameworks that is **600 spike parquet files** in the complete bundle. A corresponding one-round, timing-only dataset (120 rows, no spike parquet files) is stored in a `no_io/` subfolder and was collected with `--disable-spike-io`.
+
+## Running the Suite
+
+### Five main-environment backends
+
+Run this command from the `brain-fly` conda environment. It launches all five main backends — Brian2 CPU, Brian2CUDA, PyTorch, NEST GPU, and GeNN — across the full paper grid for five rounds:
+
+```bash
+python main.py --paper --run-label nature_2026_07
+```
+
+Progress is logged to `data/results/benchmarks.log` and printed to the console with timestamps. Results are written to `data/benchmark-results.csv` after each backend completes a single parameter point.
+
+### Brian2GeNN as the 6th backend
+
+Brian2GeNN requires the `brain-fly-brian2genn` environment because it pins Brian2 < 2.6. Run it separately and it will append its rows to the same CSV and the same labeled folder:
+
+```bash
+conda activate brain-fly-brian2genn
+python main.py --brian2genn --paper --run-label nature_2026_07
+```
+
+Both invocations write to the same `data/results/nature_2026_07/` directory and the same `manifest.csv`, so the final bundle is complete regardless of the order in which the two commands are run.
+
+## Run Labels
+
+Passing `--run-label <label>` does two things:
+
+1. **Partitions spike parquet output** into `data/results/<label>/round_XX/` subdirectories, one per round.
+2. **Preserves CSV rows across rounds** — labeled runs are keyed by `(framework, n_run, t_run, experiment_key, run_label, round)`, so repeated parameter points are appended as new rows rather than overwriting the previous result.
+
+The label is sanitized to alphanumerics, hyphens, and underscores before being used as a directory name. For example, `nature_2026_07` is used as-is, while `nature 2026/07` would become `nature_2026_07`.
+
+## Output Structure
+
+A complete `nature_2026_07` run produces the following layout under `data/results/`:
+
+```text
+data/results/nature_2026_07/
+├── manifest.csv
+├── checksums.sha256
+├── round_01/
+│   ├── brian2cpp_t1.0s_n1.parquet
+│   ├── brian2cuda_t1.0s_n1.parquet
+│   ├── pytorch_t1.0s_n1.parquet
+│   ├── nestgpu_t1.0s_n1.parquet
+│   ├── genn_t1.0s_n1.parquet
+│   └── brian2genn_t1.0s_n1.parquet
+└── round_02/
+    └── ...
+```
+
+Each parquet filename encodes the backend, duration, and trial count — for example, `pytorch_t10.0s_n32.parquet` is the PyTorch run at 10 seconds with 32 trials. The pattern repeats for every round subdirectory.
+
+## Resuming an Interrupted Run
+
+If a multi-round run is interrupted (power loss, OOM error, timeout), use `--round-start` to resume without repeating completed rounds:
+
+```bash
+# Rounds 1 and 2 completed; resume from round 3
+python main.py --paper --run-label nature_2026_07 --round-start 3
+```
+
+`--round-start` sets the first round number that will be written. Because labeled CSV rows are keyed by round, the already-written rows for rounds 1 and 2 are preserved untouched.
+
+## No-I/O Timing
+
+To collect a clean timing dataset without any spike parquet overhead, use `--disable-spike-io`. This is how the `no_io/` subfolder of the published bundle was generated:
+
+```bash
+python main.py --paper --run-label nature_2026_07_noio --disable-spike-io
+```
+
+With spike I/O disabled, no `.parquet` files are written, `spike_path` is empty in the CSV, and no manifest is updated. The `sim_time` column already excludes spike I/O in all runs; `--disable-spike-io` eliminates all overhead from the spike recording layer itself (probe allocation, buffer flushes, etc.).
+
+## Verifying the Published Bundle
+
+The committed metadata files `manifest.csv` and `checksums.sha256` allow you to verify the integrity of the downloaded parquet bundle. After downloading the Google Drive folder into `data/results/nature_2026_07/`, run:
+
+```bash
+cd data/results/nature_2026_07
+sha256sum -c checksums.sha256
+```
+
+Every listed file should report `OK`. Files that are missing or corrupted will report `FAILED`. The `manifest.csv` provides a structured index of all 600 parquet files with their spike counts, active neuron counts, backend keys, and schema metadata.
+
+<Note>
+Parquet files are intentionally excluded from Git tracking (`.gitignore`) because the full bundle is several gigabytes. The complete `nature_2026_07` spike parquet bundle is stored on Google Drive:
+
+**[https://drive.google.com/drive/folders/1jiSfb5lNfm9gwP0YyyRz5ATIrDpBAcjs](https://drive.google.com/drive/folders/1jiSfb5lNfm9gwP0YyyRz5ATIrDpBAcjs)**
+
+Only `manifest.csv` and `checksums.sha256` are committed to the repository.
+</Note>

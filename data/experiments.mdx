@@ -1,0 +1,140 @@
+---
+title: "Simulation Experiments: Sugar GRNs and P9 Neurons"
+sidebarTitle: "Experiments"
+description: "Fly Brain ships two pre-defined experiments: Sugar GRNs (21 neurons at 200 Hz) for taste processing and P9 forward-walking neurons (2 neurons at 100 Hz)."
+---
+
+Experiments define which neurons are driven with Poisson spiking — and at what rate — to seed the simulation. Every neuron in the `neu_exc` list fires stochastically at `stim_rate` Hz throughout the run; all remaining ~138k neurons respond purely through the connectome's synaptic weights. The two pre-defined experiments cover distinct sensorimotor circuits and serve as the canonical inputs for all benchmark runs.
+
+## Available Experiments
+
+<CardGroup cols={2}>
+  <Card title="Sugar GRNs" icon="candy-cane">
+    21 Gustatory Receptor Neurons (GRNs) stimulated at **200 Hz** to model taste processing. This is the default experiment and runs automatically unless `--experiment` is specified.
+
+    CLI flag: `--experiment sugar`
+  </Card>
+  <Card title="P9 Forward Walking" icon="person-walking">
+    2 P9 descending neurons stimulated at **100 Hz** to model the initiation of forward locomotion. A minimal two-neuron drive that propagates through the motor circuit.
+
+    CLI flag: `--experiment p9`
+  </Card>
+</CardGroup>
+
+## Sugar GRN Experiment
+
+The Sugar GRN experiment activates 21 gustatory receptor neurons that project from the fly's labellum into the subesophageal zone (SEZ). Together they represent bilateral sugar-sensing input arriving at 200 Hz, replicating an optogenetic activation paradigm.
+
+| Property | Value |
+|---|---|
+| **Name** | Sugar GRNs (200 Hz) |
+| **Key** | `sugar` |
+| **Stimulated neurons** | 21 |
+| **Stimulation rate** | 200.0 Hz |
+| **Silenced neurons** | none |
+| **Secondary activation** | none |
+
+The 21 FlyWire neuron IDs activated by this experiment are:
+
+```python
+neu_exc = [
+    720575940624963786,
+    720575940630233916,
+    720575940637568838,
+    720575940638202345,
+    720575940617000768,
+    720575940630797113,
+    720575940632889389,
+    720575940621754367,
+    720575940621502051,
+    720575940640649691,
+    720575940639332736,
+    720575940616885538,
+    720575940639198653,
+    720575940639259967,
+    720575940617937543,
+    720575940632425919,
+    720575940633143833,
+    720575940612670570,
+    720575940628853239,
+    720575940629176663,
+    720575940611875570,
+]
+```
+
+Run this experiment (default — the `--experiment` flag can be omitted):
+
+```bash
+python main.py --experiment sugar
+```
+
+## P9 Forward Walking Experiment
+
+The P9 experiment activates a bilateral pair of descending neurons (DNs) known as P9s, which gate forward walking in *Drosophila*. Driving only two neurons provides a clean test of how a minimal descending command propagates through the ventral nerve cord circuitry.
+
+| Property | Value |
+|---|---|
+| **Name** | P9s forward walking (100 Hz) |
+| **Key** | `p9` |
+| **Stimulated neurons** | 2 |
+| **Stimulation rate** | 100.0 Hz |
+| **Silenced neurons** | none |
+| **Secondary activation** | none |
+
+The two FlyWire neuron IDs:
+
+| Neuron | FlyWire ID |
+|---|---|
+| P9 left | `720575940627652358` |
+| P9 right | `720575940635872101` |
+
+Run this experiment:
+
+```bash
+python main.py --experiment p9
+```
+
+## Defining Custom Experiments
+
+New experiments are added directly to the `EXPERIMENTS` dict in `code/benchmark.py`. Each entry requires the following fields:
+
+```python
+EXPERIMENTS = {
+    'my_exp': {
+        'key': 'my_exp',
+        'name': 'My Custom Experiment (150 Hz)',
+        'neu_exc': [720575940624963786, ...],  # FlyWire neuron IDs to activate
+        'neu_exc2': [],   # secondary activation set (different rate not yet exposed)
+        'neu_slnc': [],   # FlyWire neuron IDs to silence
+        'stim_rate': 150.0,  # Hz
+    },
+    # ... existing experiments ...
+}
+```
+
+Field reference:
+
+| Field | Type | Description |
+|---|---|---|
+| `key` | str | Machine key — must match the dict key |
+| `name` | str | Human-readable label written to `benchmark-results.csv` |
+| `neu_exc` | list[int] | FlyWire IDs of neurons to drive with Poisson spiking at `stim_rate` Hz |
+| `neu_exc2` | list[int] | Reserved secondary activation set (not yet wired to a separate rate) |
+| `neu_slnc` | list[int] | FlyWire IDs of neurons to silence (all their synapses are zeroed) |
+| `stim_rate` | float | Poisson firing rate in Hz applied to all `neu_exc` neurons |
+
+Then pass the new key on the command line:
+
+```bash
+python main.py --experiment my_exp
+```
+
+## Interpretation
+
+The spike parquet output records every neuron that fired at least once during the run, not just the stimulated set. Active neurons in the output are those that received enough cumulative excitatory current from upstream partners to cross the membrane threshold of **−45 mV**. Because the connectome links ~5M synapses, a handful of stimulated GRNs or descending neurons can cascade into thousands of downstream cells within tens of milliseconds.
+
+Comparing active neuron sets and per-neuron firing rates across backends — using `compare_ground_truth.py` — shows how faithfully each GPU implementation reproduces the canonical Brian2 (CPU) ground truth.
+
+<Tip>
+Start with small `t_run` values (`0.1` or `1` second) when testing a new experiment to confirm the network is responding before committing to longer, compute-intensive runs. A completely silent output almost always means the stimulated FlyWire IDs were not found in the completeness CSV.
+</Tip>

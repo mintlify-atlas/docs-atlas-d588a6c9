@@ -1,0 +1,93 @@
+---
+title: "Brian2 CPU: C++ Standalone Ground Truth Backend"
+sidebarTitle: "Brian2 CPU"
+description: "Brian2 C++ standalone implements the canonical Drosophila LIF model from Shiu et al. and serves as the accuracy ground truth for all other Fly Brain backends."
+---
+
+Brian2 CPU is the reference implementation of the Fly Brain simulation. It uses Brian2's C++ standalone device for single-trial runs and joblib-parallelized trials for multi-trial benchmarks, closely following the original simulation from Shiu et al. Because this backend directly encodes the peer-reviewed model equations, every other backend is validated against it.
+
+## Architecture
+
+The CPU runner builds a standard Brian2 network from the FlyWire connectome and runs it either as a C++ standalone binary (single trial) or via joblib across all available CPU cores (multiple trials).
+
+**NeuronGroup — LIF equations**
+
+The leaky integrate-and-fire model is defined by two coupled differential equations:
+
+```python
+dv/dt = (v_0 - v + g) / t_mbr  : volt (unless refractory)
+dg/dt = -g / tau                : volt (unless refractory)
+rfc                             : second
+```
+
+`v` is the membrane potential, `g` is the alpha-function synaptic conductance, `t_mbr` is the membrane time constant, and `tau` is the synaptic time constant. Neurons enter refractory state for duration `rfc` after each spike.
+
+**Synapses**
+
+A `Synapses` object wires the ~5 million FlyWire connections using `on_pre='g += w'` with a fixed axonal delay of `t_dly`. Synapse weights are scaled from the FlyWire connectivity table by `w_syn`.
+
+**PoissonInput**
+
+Optogenetic activation is modelled by `PoissonInput` objects that inject Poisson-distributed spikes directly into the membrane voltage of target neurons at rate `r_poi`, with weight `w_syn * f_poi`. Activated neurons have their refractory period cleared so they can fire immediately.
+
+**SpikeMonitor**
+
+A `SpikeMonitor` attached to all neurons collects per-neuron spike trains, which are exported to Parquet after the timed simulation section.
+
+**Trial parallelism — joblib loky backend**
+
+When `n_run > 1` on CPU, the runner uses `joblib.Parallel` with the `loky` backend. Each trial runs in its own independent subprocess (a fresh Python interpreter), so network state is never shared across trials. The total `sim_time` column in the results CSV records the wall-clock time of the entire parallel job.
+
+## Model Parameters
+
+The full default parameter set used by both the CPU and CUDA paths:
+
+```python
+default_params = {
+    'v_0':   -52 * mV,    # resting / initial membrane potential
+    'v_rst': -52 * mV,    # reset potential after spike
+    'v_th':  -45 * mV,    # spike threshold
+    't_mbr':  20 * ms,    # membrane time constant
+    'tau':     5 * ms,    # synaptic (alpha) time constant
+    't_rfc':   2.2 * ms,  # refractory period
+    't_dly':   1.8 * ms,  # synaptic delay
+    'w_syn':   0.275 * mV,# weight per synapse
+    'r_poi': 100 * Hz,    # primary Poisson input rate
+    'r_poi2':  0 * Hz,    # secondary Poisson input rate (silencing set)
+    'f_poi': 250,         # Poisson weight scaling factor
+}
+```
+
+## CLI Usage
+
+Run a single 1-second trial on the CPU backend:
+
+```bash
+python main.py --brian2-cpu --t_run 1 --n_run 1
+```
+
+Run a sweep across multiple durations and trial counts:
+
+```bash
+python main.py --brian2-cpu --t_run 0.1 1 10 --n_run 1 4 8 16 32
+```
+
+## Timing Columns
+
+The `data/benchmark-results.csv` file captures three timing columns for each run:
+
+| Column | What it measures |
+|---|---|
+| `setup_time` | Time to create `NeuronGroup`, `Synapses`, and `PoissonInput` objects |
+| `build_time` | Always **0** for the CPU path — there is no CUDA codegen step |
+| `sim_time` | Wall-clock time of the entire joblib parallel simulation across all trials |
+
+For single-trial C++ standalone runs, `sim_time` measures the standalone binary execution time only; for multi-trial joblib runs it includes process spawn overhead.
+
+## Why It Is the Ground Truth
+
+The Brian2 CPU backend directly implements the canonical LIF model from [Shiu et al. (Nature 2024)](https://www.nature.com/articles/s41586-024-07763-9). That model was calibrated against experimental *Drosophila* optogenetic recordings and achieved **91% prediction accuracy** on held-out conditions. Because the equations, parameters, and Poisson drive are taken verbatim from the published model, the CPU backend is the most scientifically authoritative implementation in the benchmark suite. All other backends (Brian2CUDA, PyTorch, NEST GPU, GeNN, Brian2GeNN) are designed to reproduce its spike output and are compared against it using `code/compare_ground_truth.py`.
+
+<Note>
+Brian2CUDA (GPU) shares this same runner file (`run_brian2_cuda.py`) but calls `set_device('cuda_standalone')` instead of `set_device('cpp_standalone')`. See [frameworks/brian2cuda](/frameworks/brian2cuda) for details on the GPU path.
+</Note>
